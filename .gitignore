@@ -1,0 +1,36 @@
+# Dependencias
+node_modules/
+
+# Builds de Next.js
+.next/
+out/
+
+# Producción
+build/
+
+# Variables de entorno (cero credenciales en el repo — ISO 27001 A.8.12)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Sistema operativo / editores
+.DS_Store
+Thumbs.db
+*.pem
+.vscode/
+.idea/
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vercel
+.vercel

@@ -1,0 +1,214 @@
+"use client";
+
+/**
+ * M3 — Modal `Importar`: carga masiva simulada de leads.
+ * Dos vías, ambas funcionales sobre el store:
+ *  1. Archivo CSV/Excel (.csv) con parseo real tolerante (; o , y comillas).
+ *  2. Generador de leads de demostración (25 leads del lote vigente).
+ * Los contactos importados quedan etiquetados como `importado-06112026`.
+ */
+
+import { FileSpreadsheet, Upload, Wand2 } from "lucide-react";
+import { useRef, useState } from "react";
+
+import { Badge } from "@/shared/components/ui/Badge";
+import { Button } from "@/shared/components/ui/Button";
+import { useCrm } from "@/shared/services/crmStore";
+
+import { Modal } from "./Modal";
+import { parseContactsCsv } from "./contactsUtils";
+
+export interface ImportContactsModalProps {
+  open: boolean;
+  onClose: () => void;
+}
+
+const IMPORT_TAG = "importado-06112026";
+const DEMO_FIRST_NAMES = ["CARLOS", "MARIA", "JULIAN", "PAOLA", "ANDRES", "VALENTINA", "OSCAR", "CAMILA", "FREDY", "NATALIA", "JORGE", "LILIANA"];
+const DEMO_LAST_NAMES = ["GOMEZ PEREZ", "RODRIGUEZ SILVA", "MARTINEZ TORO", "RAMIREZ CASTRO", "HERRERA MONTOYA", "PRIETO ZAPATA", "QUINTERO SALAS"];
+const DEMO_SOURCES = ["WhatsApp", "Meta Ads", "Google"];
+
+function randomItem<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)]!;
+}
+
+/** Genera 25 leads sintéticos realistas de la campaña de portabilidad. */
+function generateDemoLeads(): Array<{
+  full_name: string;
+  phone_e164: string;
+  email: string | null;
+  company_name: string | null;
+  lead_source: string;
+}> {
+  return Array.from({ length: 25 }, (_, index) => ({
+    full_name: `${randomItem(DEMO_FIRST_NAMES)} ${randomItem(DEMO_LAST_NAMES)}`,
+    phone_e164: `573${String(100000000 + Math.floor(Math.random() * 899999999) + index).slice(0, 9)}`,
+    email: Math.random() > 0.7 ? `lead${index + 1}@correo.com` : null,
+    company_name: Math.random() > 0.85 ? "Comercio local" : null,
+    lead_source: randomItem(DEMO_SOURCES),
+  }));
+}
+
+export function ImportContactsModal({ open, onClose }: ImportContactsModalProps) {
+  const { createContact } = useCrm();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [parsedRows, setParsedRows] = useState<Array<{ full_name: string; phone_e164: string; email: string | null; company_name: string | null; lead_source: string }> | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [importedCount, setImportedCount] = useState<number | null>(null);
+
+  const reset = () => {
+    setParsedRows(null);
+    setFileName(null);
+    setParseError(null);
+    setImportedCount(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    setImportedCount(null);
+    setParsedRows(null);
+    setFileName(null);
+    setParseError(null);
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseContactsCsv(text);
+    if (rows.length === 0) {
+      setParseError("No se encontraron filas válidas. Usa el formato: nombre; teléfono; email; empresa; fuente.");
+      return;
+    }
+    setParsedRows(
+      rows.map((row) => ({
+        full_name: row.full_name,
+        phone_e164: row.phone_e164,
+        email: row.email ?? null,
+        company_name: row.company_name ?? null,
+        lead_source: row.lead_source ?? "WhatsApp",
+      })),
+    );
+    setFileName(file.name);
+  };
+
+  const importRows = (
+    rows: Array<{ full_name: string; phone_e164: string; email: string | null; company_name: string | null; lead_source: string }>,
+  ) => {
+    rows.forEach((row, index) => {
+      window.setTimeout(() => {
+        createContact({
+          ...row,
+          tags: [IMPORT_TAG],
+        });
+      }, index * 25);
+    });
+    setImportedCount(rows.length);
+    setParsedRows(null);
+    setFileName(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      title="Importar contactos"
+      subtitle="Carga masiva de leads por CSV/Excel. En Etapa A los datos viven en el store en memoria."
+    >
+      <div className="flex flex-col gap-5">
+        <div className="rounded-xl border border-adlive-border bg-adlive-canvas-bg/60 px-4 py-3 text-xs leading-5 text-adlive-text-muted">
+          <p className="font-semibold text-adlive-text-main">Formato esperado del CSV</p>
+          <p className="mt-1 font-mono">
+            nombre;teléfono;email;empresa;fuente
+            <br />
+            ARMANDO CARDENAS;573207949885;correo@ejemplo.com;Ferretería Suárez;WhatsApp
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <label
+            htmlFor="importar-archivo-csv"
+            className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-adlive-border px-4 py-5 transition-colors hover:border-adlive-primary hover:bg-adlive-primary-light/40"
+          >
+            <Upload className="h-5 w-5 shrink-0 text-adlive-primary" aria-hidden />
+            <span className="text-sm text-adlive-text-main">
+              {fileName ? (
+                <>
+                  <span className="font-semibold">{fileName}</span> — listo para importar
+                </>
+              ) : (
+                "Selecciona un archivo .csv con los leads"
+              )}
+            </span>
+          </label>
+          <input
+            ref={fileInputRef}
+            id="importar-archivo-csv"
+            type="file"
+            accept=".csv,text/csv,text/plain"
+            className="sr-only"
+            onChange={handleFileChange}
+          />
+          {parseError ? (
+            <p role="alert" className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-adlive-danger">
+              {parseError}
+            </p>
+          ) : null}
+        </div>
+
+        {parsedRows ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-adlive-border p-4">
+            <p className="flex items-center gap-2 text-sm font-semibold text-adlive-text-main">
+              <FileSpreadsheet className="h-4 w-4 text-adlive-primary" aria-hidden />
+              {parsedRows.length} contactos detectados
+            </p>
+            <ul className="max-h-36 overflow-y-auto text-xs text-adlive-text-muted">
+              {parsedRows.slice(0, 50).map((row, index) => (
+                <li key={`${row.phone_e164}-${index}`} className="border-b border-adlive-border/60 py-1.5 last:border-0">
+                  <span className="font-mono">{row.phone_e164}</span> · {row.full_name}
+                  {row.email ? ` · ${row.email}` : ""}
+                </li>
+              ))}
+            </ul>
+            <Button variant="primary" size="sm" className="self-start" onClick={() => importRows(parsedRows)}>
+              Importar {parsedRows.length} contactos
+            </Button>
+          </div>
+        ) : null}
+
+        <div className="flex items-center gap-3" aria-hidden>
+          <span className="h-px flex-1 bg-adlive-border" />
+          <span className="text-xs text-adlive-text-muted">o</span>
+          <span className="h-px flex-1 bg-adlive-border" />
+        </div>
+
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => importRows(generateDemoLeads())}
+          className="gap-2 self-start"
+        >
+          <Wand2 className="h-4 w-4 text-adlive-primary" aria-hidden />
+          Simular carga de 25 leads de prueba
+        </Button>
+
+        {importedCount !== null ? (
+          <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-adlive-success">
+            <Badge tone="success">{importedCount} leads</Badge>
+            importados con la etiqueta {IMPORT_TAG}.
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={handleClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}

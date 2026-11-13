@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Sistema de Diseño ADlive — Tokens de marca
+ * Fuente canónica: context/03-reglas-diseno-adlive.md
+ */
+:root {
+  /* Marca Principal ADlive */
+  --adlive-primary: #5b00ff; /* Violeta Eléctrico */
+  --adlive-primary-hover: #4800cc;
+  --adlive-primary-light: #f2ebff;
+
+  /* Acentos Secundarios ADlive */
+  --adlive-cyan: #29c5f6; /* Cian Digital */
+  --adlive-cyan-light: #e6f8fe;
+  --adlive-lime: #e6ff00; /* Lima Ácido Neón */
+
+  /* Superficies y Estructura */
+  --adlive-sidebar-bg: #0a0a12; /* Negro Obsidiana Profundo */
+  --adlive-sidebar-card: #141424;
+  --adlive-canvas-bg: #eceef2; /* Gris Alabastro Frío */
+  --adlive-card-bg: #ffffff;
+  --adlive-border: #e2e5ec;
+
+  /* Tipografía (Contraste WCAG 2.2 AA) */
+  --adlive-text-main: #0f111a;
+  --adlive-text-muted: #5e6478;
+  --adlive-text-inverse: #ffffff;
+
+  /* Colores Semánticos Operativos */
+  --adlive-success: #10b981; /* Verde Esmeralda */
+  --adlive-warning: #f59e0b; /* Ámbar */
+  --adlive-danger: #ef4444; /* Rojo Coral */
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background-color: var(--adlive-canvas-bg);
+  color: var(--adlive-text-main);
+  font-feature-settings: "cv02", "cv03", "cv04";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/*
+ * Accesibilidad: foco visible consistente en toda la app (WCAG 2.2 AA).
+ * Los navegadores solo lo muestran en navegación por teclado gracias a :focus-visible.
+ */
+:focus-visible {
+  outline: 2px solid var(--adlive-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Sidebar oscuro: foco legible sobre fondo #0A0A12 */
+.adlive-sidebar :focus-visible {
+  outline-color: var(--adlive-cyan);
+}
+
+/* Respeto a preferencias de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Scrollbars discretas acordes al sistema de diseño */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(94, 100, 120, 0.35) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(94, 100, 120, 0.35);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Números tabulares para cifras KPI y datos monetarios (JetBrains Mono) */
+.adlive-tabular {
+  font-variant-numeric: tabular-nums;
+}
