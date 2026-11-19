@@ -1,0 +1,166 @@
+PASO 1: 
+Hola Kimi. Vamos a ejecutar una actualización arquitectónica clave en la capa visual antes de pasar al backend real.
+
+### REGLAS INQUEBRANTABLES (APLICAR TODAS LAS SKILLS)
+- Lee `context/CONTEXT_LOG.md` y todos los archivos que vayas a modificar ANTES de editarlos.
+- Aplica `preserve-existing-code`: **PROHIBIDO** borrar lógica existente o entregar archivos truncados con `// ... resto del código`.
+- Aplica `code-reuse-and-optimization`: reutiliza las variables CSS de `src/app/globals.css` y los componentes existentes en `src/shared/components/ui/` sin duplicar código.
+- Aplica `ux-ui-accessibility-seo`: WCAG 2.2 AA, `<button type="button">` en acciones, navegación por teclado y cero overflow horizontal.
+
+### CONTEXTO DE ARQUITECTURA WHITE-LABEL (IMPORTANTE)
+Este CRM es un SaaS multi-tenant de ADlive arrendado a diferentes empresas (ej. `admin@cierto.com.co` y `admin@movisvendemos.com.mx`).
+- **NO debemos quemar los colores ni el logo de CIERTO como estilos estáticos fijos para toda la plataforma.**
+- En su lugar, implementaremos un **Sistema de Branding Dinámico por Tenant (CSS Custom Properties en Runtime)** donde cada empresa arrendada tiene su propio nombre, logo y paleta de colores, y dentro del panel de un cliente arrendado **NO aparece ningún texto que diga "ADlive"**.
+
+### TAREAS EXACTAS DE ESTE PROMPT 1:
+1. **Refactorización de Tokens CSS y Modelo `TenantBranding`:**
+   - En `src/shared/types/database.ts`, agrega la interfaz `TenantBranding`:
+     ```ts
+     export interface TenantBranding {
+       brand_name: string;
+       logo_url: string | null;
+       logo_dark_url: string | null;
+       primary_color: string;
+       primary_hover: string;
+       accent_color: string;
+       sidebar_bg: string;
+       canvas_bg: string;
+       ink_color: string;
+     }
+     ```
+     y añade `branding?: TenantBranding` a la interfaz `Tenant`.
+   - En `src/app/globals.css` y `tailwind.config.ts`, mantén las variables CSS existentes como fallbacks neutros y mapea las variables dinámicas `--brand-primary`, `--brand-primary-hover`, `--brand-accent`, `--brand-sidebar-bg`, `--brand-canvas-bg` y `--brand-ink` (haciendo que `--adlive-primary` y demás alias apunten a `--brand-*` para no romper ninguna clase existente en los 12 módulos).
+   - Crea un componente reutilizable `src/shared/components/BrandLogo.tsx` (reemplazando referencias directas a `AdliveLogo.tsx` dentro del dashboard) que renderice el `logo_url` / `logo_dark_url` del tenant activo si existe, o un isotipo limpio con la inicial de `brand_name` si aún no sube logo. **Elimina cualquier texto fijo "ADlive" del Sidebar, Topbar y vistas del workspace del cliente.**
+   - Crea `src/shared/components/TenantThemeProvider.tsx` (o inyéctalo en `src/app/(dashboard)/layout.tsx`) para aplicar en tiempo real las variables CSS del `activeTenant.branding` sobre el contenedor raíz.
+   - En `src/shared/mocks/tenants.mock.ts` (solo mientras migramos a Supabase en el Prompt 3), configura un tenant de prueba `"CIERTO"` con su paleta oficial del manual de marca (`primary_color: "#6B07E9"`, `primary_hover: "#4805AD"`, `accent_color: "#FF573D"`, `sidebar_bg: "#100D30"`, `canvas_bg: "#F7F3FF"`, `ink_color: "#100D30"`, `logo_url: "/brands/cierto/CIERTO_Logo_Principal.png"`) y otro tenant `"MovisVendemos"` con una paleta distinta (ej. azul corporativo `#0066CC` y sidebar `#0B192C`) para probar en vivo el cambio instantáneo de marca blanca al cambiar de cuenta.
+   - En `/login` (`AuthForm.tsx`), soporta lectura opcional del parámetro URL `?workspace=slug` para mostrar el logo y color de esa empresa si existe, o una apariencia neutra y limpia si se entra sin parámetro.
+
+2. **Auditoría y Corrección 100% Responsive (Mobile, Tablet y Desktop):**
+   - **Layout y Sidebar (`src/app/(dashboard)/layout.tsx`, `Sidebar.tsx`, `Topbar.tsx`):** En pantallas `< 1024px` (`lg`), oculta el sidebar fijo y agrega un botón menú hamburguesa accesible (`aria-label="Abrir menú"`) en el Topbar que abra el Sidebar como un *Drawer* deslizante con backdrop oscuro y cierre con tecla `Escape` o al navegar de ruta.
+   - **Dashboard (`DashboardView.tsx`):** KPIs en `grid-cols-1 sm:grid-cols-2 xl:grid-cols-4`, gráficos y bloques inferiores apilables en `grid-cols-1 lg:grid-cols-3`.
+   - **Todas las Tablas (`ContactsTable.tsx`, `TemplatesTable.tsx`, `WorkflowsTable.tsx`, `TeamView.tsx`, `AttributionView.tsx`, `SettingsView.tsx`):** Envuelve cada tabla en un contenedor con `overflow-x-auto` y barra de filtros responsiva (`flex-wrap`, `w-full sm:w-auto`).
+   - **Tablero Kanban (`KanbanView.tsx`):** Contenedor con scroll horizontal táctil (`overflow-x-auto snap-x`) y columnas con ancho mínimo controlado (`min-w-[280px]`).
+   - **Bandeja de Conversaciones (`InboxView.tsx`, `ConversationSidebar.tsx`, `ChatCanvas.tsx`, `ContactContextPanel.tsx`):** En móviles (`< 1024px`), muestra únicamente la lista de chats; al seleccionar una conversación, oculta la lista y muestra el chat a pantalla completa con un botón `"← Conversaciones"` y un botón `"Info"` para abrir el panel derecho de contacto como drawer lateral.
+   - **Ficha 360° (`ContactDetailView.tsx`):** En móviles y tablets, apila las 3 columnas en `grid-cols-1 lg:grid-cols-12` sin desbordamientos.
+
+3. **Bitácora Obligatoria:** Actualiza `context/CONTEXT_LOG.md` y entrega el resumen estructurado de archivos creados/modificados y el resultado de `npm run build`.
+
+
+
+Excelente. Ahora ejecutaremos el **PASO 2: Arquitectura de Superadmin ADlive, Branding Persistente en Supabase y Limpieza de Datos Quemados**.
+
+### REGLAS INQUEBRANTABLES
+- Aplica `iso-code-server-security` (RLS estricto, cero fugas entre tenants, cero `SERVICE_ROLE_KEY` en cliente), `backend-software-architecture` y `preserve-existing-code`.
+
+### TAREAS EXACTAS DE ESTE PROMPT 2:
+1. **Nueva Migración SQL (`supabase/migrations/20261118000100_whitelabel_and_superadmin.sql`):**
+   - Agrega la columna `branding JSONB NOT NULL DEFAULT '{...}'::jsonb` y `status VARCHAR(30) NOT NULL DEFAULT 'active'` a la tabla `tenants`.
+   - Crea la tabla `platform_superadmins (user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE, email VARCHAR(255) UNIQUE NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW())`.
+   - Crea una función SQL segura `public.is_platform_superadmin() RETURNS BOOLEAN` (`SECURITY DEFINER`, `SET search_path = public`) que verifique si `auth.uid()` está en `platform_superadmins`.
+   - Crea un bucket o políticas de Storage documentadas para logos de tenants (`tenant-branding`, lectura pública de logos, escritura restringida solo al `owner`/`admin` de ese tenant o a `is_platform_superadmin()`).
+   - Ajusta las políticas RLS necesarias para que:
+     - Un `owner`/`admin` de un tenant (ej. `admin@cierto.com.co`) **jamás** pueda ver, listar ni modificar filas de otro tenant (ej. `admin@movisvendemos.com.mx`).
+     - Un `agent` con `can_view_all_contacts = false` solo vea contactos, conversaciones y oportunidades asignados a él.
+     - Un Superadmin de ADlive pueda gestionar la tabla `tenants` y crear membresías iniciales desde el panel `/superadmin`.
+   - Ejecuta esta migración en Supabase vía MCP (si está conectado) o déjala lista para aplicar.
+
+2. **Script de Limpieza de Datos Quemados (`supabase/scripts/clean_mock_data.sql`):**
+   - Crea un script SQL limpio y seguro que vacíe todos los registros transaccionales de prueba/mocks que existan en Supabase (`messages`, `conversations`, `opportunities`, `contact_notes`, `contact_tasks`, `contact_activities`, `workflow_enrollments`, `workflows`, `whatsapp_templates`, `ai_bots`, `contacts`, `custom_field_definitions`, `custom_values`, `pipeline_stages`, `pipelines`, `tenant_integrations_vault`, `tenant_members`, `tenants`) usando `TRUNCATE ... RESTART IDENTITY CASCADE`, manteniendo intactas todas las tablas, enums, índices, funciones y políticas RLS.
+
+3. **Panel Superadmin de ADlive (`src/app/(superadmin)/superadmin/page.tsx` y `src/features/superadmin/`):**
+   - Crea un espacio completamente separado del dashboard de clientes (`/superadmin`), protegido en servidor verificando `is_platform_superadmin()`.
+   - Funcionalidades del Panel Superadmin ADlive:
+     - **Listado de Empresas Arrendadas (Workspaces):** Nombre, slug, correo del admin principal, estado (`active`/`suspended`), enlace directo de login branded (`/login?workspace=slug`) y métricas agregadas (cantidad de usuarios/contactos).
+     - **Modal "Crear Nueva Empresa / Workspace":** Permite a ADlive crear un nuevo cliente (ej. `CIERTO` con `admin@cierto.com.co` y contraseña temporal o invitación, o `MovisVendemos` con `admin@movisvendemos.com.mx`), elegir sus colores (`primary_color`, `sidebar_bg`, `accent_color`, `canvas_bg`), subir/pegar URL de su logo y aprovisionar automáticamente su pipeline por defecto (`Nuevo Lead`, `Contactado`, `Interesado`, `Ganado`, `Perdido`) vía Route Handler protegido (`/api/v1/superadmin/tenants`) usando `supabaseAdmin` en servidor.
+     - **Pestaña de Personalización de Marca en `/ajustes`:** Añade una pestaña `"Marca y Apariencia"` en `SettingsView.tsx` (visible solo para `owner`/`admin` del tenant) para que la empresa arrendada también pueda actualizar su propio logo y colores si lo deseas.
+
+4. **Bitácora Obligatoria:** Actualiza `context/CONTEXT_LOG.md` y verifica `npm run build`.
+
+
+Ahora ejecutaremos el **PASO 3: Dejar atrás los Mocks y conectar Auth real, Invitación de Equipo y CRUD 100% real en Supabase (más parche de seguridad de dependencias)**.
+
+### REGLAS INQUEBRANTABLES
+- Aplica `preserve-existing-code`, `iso-code-server-security` y `code-reuse-and-optimization`.
+- **PROHIBIDO romper el diseño responsive ni el branding dinámico del Paso 1 y Paso 2.**
+- Si un tenant nuevo arranca con 0 contactos, 0 chats o 0 oportunidades (tras limpiar los mocks), todas las pantallas deben renderizar sus **Empty States** limpios sin lanzar errores `undefined` ni pantallas blancas.
+
+### TAREAS EXACTAS DE ESTE PROMPT 3:
+1. **Parche de Seguridad de Dependencias (Sin migrar a Next 16):**
+   - Audita `package.json` y los 2 avisos de seguridad reportados en Next/PostCSS. Actualiza únicamente a la última versión parche segura dentro de la rama `next@15.x` y `postcss` compatible, evitando saltos mayores a Next 16 que rompan la app. Documenta el resultado de `npm audit`.
+
+2. **Middleware y Autenticación Real con Supabase (`src/middleware.ts`, `AuthForm.tsx`, `(dashboard)/layout.tsx`):**
+   - Implementa `src/middleware.ts` con `@supabase/ssr` para refrescar la sesión en cada petición, redirigir usuarios no autenticados a `/login`, proteger `/superadmin` y bloquear acceso directo sin sesión válida.
+   - Conecta `/login` con `supabase.auth.signInWithPassword` (y recuperación de contraseña con `resetPasswordForEmail`).
+   - Conecta `/register` (si está habilitado el autoregistro, o hazlo configurable mediante variable `NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP`) para crear cuenta real en Supabase Auth + Tenant + Pipeline inicial de forma atómica en el servidor (`/api/v1/auth/bootstrap-tenant`).
+   - Agrega el cierre de sesión real (`supabase.auth.signOut()`).
+
+3. **Invitación Real de Miembros del Equipo (`/api/v1/team/invite` y `TeamView.tsx`):**
+   - Cuando `admin@cierto.com.co` invite a un asesor (ej. `agente1@cierto.com.co`) con rol `agent` o `admin`, el Route Handler valida en el servidor que el solicitante es `owner`/`admin` de ese `tenant_id`, crea/invita al usuario mediante `supabaseAdmin.auth.admin.inviteUserByEmail` (o creación con contraseña temporal segura) e inserta su registro en `tenant_members`.
+   - Conecta los switches `is_active` (Round Robin) y `can_view_all_contacts` directamente a la tabla `tenant_members` en Supabase.
+
+4. **Migración Real de `crmStore.tsx` y `crmActions.ts` a Supabase:**
+   - Reemplaza las lecturas y mutaciones en memoria de `src/shared/mocks/*` por consultas reales contra Supabase filtradas por el `tenant_id` activo para los módulos:
+     - Dashboard (KPIs agregados reales desde SQL/RPC para velocidad `< 120ms`).
+     - Contactos (paginación por servidor de 50 en 50, filtros, importador CSV con sanitización contra CSV Injection `=`, `+`, `-`, `@`, y Ficha 360° con Notas, Tareas y Actividad).
+     - Oportunidades Kanban (mover etapa, crear oportunidad, actualizar valor).
+     - Plantillas, Automatizaciones, Atribución y Ajustes (Campos personalizados, Valores personalizados, Branding y regeneración real de `public_webhook_token`).
+   - Asegúrate de que `AccountSwitcher.tsx` muestre únicamente los workspaces a los que pertenece realmente el usuario autenticado en `tenant_members`.
+
+5. **Bitácora Obligatoria:** Actualiza `context/CONTEXT_LOG.md` y confirma `npm run build` con 0 errores de TypeScript.
+
+Ahora ejecutaremos el **PASO 4: Conexión Real de WhatsApp Cloud API por Tenant, Realtime en Bandeja, Bots IA y Motor de Automatizaciones**.
+
+### REGLAS INQUEBRANTABLES
+- Aplica `iso-code-server-security` (cero API keys en el frontend, cifrado AES-256-GCM en `vaultCipher.ts`, verificación HMAC-SHA256 en webhooks), `backend-software-architecture` y `preserve-existing-code`.
+
+### TAREAS EXACTAS DE ESTE PROMPT 4:
+1. **Bóveda Cifrada Multi-Tenant (`/api/v1/integrations` y `/api/v1/ai-bots/providers`):**
+   - Conecta las pantallas `/integraciones` y `/bots-ia` a Route Handlers seguros en el servidor.
+   - Cuando `admin@cierto.com.co` o `admin@movisvendemos.com.mx` guarda sus credenciales de **WhatsApp Business Cloud API** (`phone_number_id`, `waba_id`, `access_token`, `verify_token`, `app_secret`) o sus API Keys de IA (`OpenAI`, `Anthropic`, `Gemini`, `Grok`):
+     - El servidor cifra las credenciales secretas usando `src/shared/lib/crypto/vaultCipher.ts` (`AES-256-GCM` con `ENCRYPTION_MASTER_KEY`) y guarda `phone_number_id` y `waba_id` en `public_metadata` de `tenant_integrations_vault`.
+     - El frontend jamás recibe la clave desencriptada; solo recibe `{ is_connected: true, masked_key: "••••••abcd", public_metadata }`.
+
+2. **Envío Real de Mensajes y Sincronización Real de Plantillas con Meta Graph API:**
+   - Crea `src/shared/services/metaWhatsAppClient.ts` (solo servidor) para:
+     - Enviar mensajes de texto libre dentro de la ventana de 24 horas (`POST https://graph.facebook.com/v21.0/{phone_number_id}/messages`).
+     - Enviar plantillas aprobadas con variables `{{1}}`, `{{2}}` cuando la ventana de 24 horas esté cerrada (bloqueando estrictamente envíos de texto libre fuera de ventana desde el servidor, no solo en UI).
+     - Sincronizar plantillas reales desde Meta (`GET /{waba_id}/message_templates`) y enviar nuevas plantillas a aprobación (`POST /{waba_id}/message_templates`) desde `/plantillas`.
+
+3. **Webhook Multi-Tenant Ultra Rápido (`< 150ms`) e Idempotente (`src/app/api/v1/webhooks/whatsapp/route.ts`):**
+   - En `GET`: valida `hub.mode === 'subscribe'` y `hub.verify_token` buscando coincidencia en `tenant_integrations_vault` (o variable global de plataforma).
+   - En `POST`:
+     - Extrae `phone_number_id` del payload de Meta y resuelve de forma segura el `tenant_id` propietario de ese número de WhatsApp.
+     - Valida obligatoriamente la firma criptográfica `X-Hub-Signature-256` contra el `app_secret` del tenant (o el `META_APP_SECRET` de plataforma). Si falla, responde `401`.
+     - Garantiza idempotencia usando `wa_message_id` único (si Meta reenvía el webhook 10 veces, solo se procesa 1 mensaje).
+     - Actualiza estados de entrega (`sent`, `delivered`, `read`, `failed`), crea/actualiza contacto, actualiza `last_inbound_at`, respeta `opt_out_marketing = true` si responde `"No"`, y ejecuta la función SQL atómica de reparto **Round Robin** entre agentes con `is_active = true` del tenant.
+     - Si el contacto tiene `handler_mode = 'bot'` y el tenant tiene un Bot IA activo, dispara la respuesta controlada del proveedor IA configurado (sin bloquear la respuesta `200 OK` al webhook de Meta).
+
+4. **Activación de Supabase Realtime en `/conversaciones` (`inboxRealtimeService.ts`):**
+   - Conecta la suscripción real de `supabase.channel(...)` filtrada estrictamente por `tenant_id=eq.${activeTenant.id}` (y filtrada por agente si `can_view_all_contacts === false`), actualizando instantáneamente nuevos mensajes, contadores de no leídos y cambios de estado (`✓✓`).
+
+5. **Bitácora Obligatoria:** Actualiza `context/CONTEXT_LOG.md` y confirma `npm run build` exitoso.
+
+
+
+Vamos a ejecutar el **PASO 5: Auditoría Final de QA, Seguridad ISO/IEC 27001 y Preparación de Despliegue en Producción (Vercel + Supabase)**.
+
+### REGLAS INQUEBRANTABLES
+- Aplica `qa-testing-engineering` y `iso-code-server-security`. Actúa como auditor independiente buscando fallos antes de salir a producción.
+
+### TAREAS EXACTAS DE ESTE PROMPT 5:
+1. **Suite de Verificación y Pruebas Automatizadas (Vitest / Scripts de Validación):**
+   - Crea scripts de prueba unitaria e integración que validen los casos críticos del sistema:
+     - **Aislamiento Multi-Tenant (`TC-001` / `TC-002`):** Verificar que las políticas RLS y los Route Handlers rechazan cualquier intento del Tenant A (`cierto`) de leer o mutar IDs del Tenant B (`movisvendemos`).
+     - **Seguridad de Credenciales (`TC-020`):** Verificar con análisis estático que ninguna variable secreta (`SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_MASTER_KEY`, `META_APP_SECRET`, API keys) aparece en bundles de cliente ni en `console.log`.
+     - **Idempotencia y Firma Webhook (`TC-006` / `TC-007`):** Verificar que una firma `X-Hub-Signature-256` inválida devuelve `401` y un `wa_message_id` repetido no duplica mensajes.
+     - **Ventana 24h y Opt-Out (`TC-009` / `TC-012`):** Verificar bloqueo en servidor de mensajes de texto libre tras >24h y exclusión de contactos con `opt_out_marketing = true`.
+     - **Sanitización CSV (`TC-024`):** Verificar que celdas maliciosas (`=CMD|...`, `+SUM(...)`) se neutralizan al importar y exportar CSV.
+     - **Round Robin Atómico (`TC-013` / `TC-014`):** Verificar que agentes con `is_active = false` nunca reciben nuevos leads.
+
+2. **Verificación de Variables de Entorno y Despliegue Vercel:**
+   - Actualiza `.env.example` con la lista exacta y documentada de variables que debo cargar en Vercel (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ENCRYPTION_MASTER_KEY`, `META_APP_SECRET`, `WHATSAPP_VERIFY_TOKEN`, `NEXT_PUBLIC_APP_URL`).
+   - Ejecuta `npm run lint`, `npx tsc --noEmit` y `npm run build`, corrigiendo cualquier advertencia o error que impida desplegar en Vercel.
+
+3. **Guía de Puesta en Marcha Real:**
+   - Entrega al final un checklist paso a paso de los 5 minutos exactos que debo hacer en Vercel, Supabase y Meta Developers (configurar URL del webhook y suscribir el campo `messages`) para enviar el primer mensaje real de WhatsApp al workspace de `admin@cierto.com.co`.
+   - Actualiza `context/CONTEXT_LOG.md` con el cierre de auditoría.

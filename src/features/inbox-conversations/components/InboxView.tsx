@@ -1,13 +1,5 @@
 "use client";
 
-/**
- * M5 — Vista orquestadora de la bandeja en 3 columnas.
- *
- * - Resuelve ConversationWithDetails (contacto + asesor) y aplica los filtros
- *   del sidebar con useMemo (sin re-render innecesarios — Skill 4).
- * - Mantiene la conversación activa; si se elimina, salta al primer hilo disponible.
- */
-
 import { useEffect, useMemo, useState } from "react";
 
 import { useCrm } from "@/shared/services/crmStore";
@@ -22,8 +14,8 @@ export function InboxView() {
   const { conversations, contacts, members } = useCrm();
   const [filter, setFilter] = useState<InboxFilter>(EMPTY_INBOX_FILTER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
-  /* ---- Hilos resueltos: contacto + asesor, ordenados por actividad ---- */
   const threads = useMemo<ConversationWithDetails[]>(() => {
     const contactById = new Map(contacts.map((contact) => [contact.id, contact]));
     const memberById = new Map(members.map((member) => [member.id, member]));
@@ -35,7 +27,7 @@ export function InboxView() {
           : undefined;
         return {
           ...conversation,
-          contact_name: contact?.full_name ?? "Contacto eliminado",
+          contact_name: contact?.full_name ?? "Contacto no disponible",
           contact_phone: contact?.phone_e164 ?? "",
           contact_tags: contact?.tags ?? [],
           assigned_member_name: assignee?.email ?? null,
@@ -46,47 +38,75 @@ export function InboxView() {
   }, [conversations, contacts, members]);
 
   const contactById = useMemo(() => new Map(contacts.map((contact) => [contact.id, contact])), [contacts]);
-
   const filteredThreads = useMemo(
-    () =>
-      threads.filter((thread) =>
-        matchesInboxFilters(thread, contactById.get(thread.contact_id), filter),
-      ),
+    () => threads.filter((thread) => matchesInboxFilters(thread, contactById.get(thread.contact_id), filter)),
     [threads, contactById, filter],
   );
 
-  /* ---- Conversación activa con resguardo ante eliminación ---- */
   const selectedThread = threads.find((thread) => thread.id === selectedId) ?? null;
-
-  useEffect(() => {
-    if (!selectedThread && threads.length > 0) setSelectedId(threads[0]!.id);
-    if (threads.length === 0) setSelectedId(null);
-  }, [selectedThread, threads]);
-
   const selectedContact = selectedThread ? contactById.get(selectedThread.contact_id) : undefined;
 
-  return (
-    <div className="grid h-[calc(100dvh-112px)] grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] xl:grid-cols-[330px_minmax(0,1fr)_300px]">
-      <ConversationSidebar
-        threads={filteredThreads}
-        totalCount={threads.length}
-        filter={filter}
-        onFilterChange={setFilter}
-        selectedId={selectedId}
-        onSelect={setSelectedId}
-        members={members}
-        contacts={contacts}
-      />
+  useEffect(() => {
+    if (selectedId && !selectedThread) {
+      setSelectedId(null);
+      setInfoOpen(false);
+    }
+  }, [selectedId, selectedThread]);
 
-      <ChatCanvas
-        thread={selectedThread}
-        contact={selectedContact}
-        members={members}
-      />
+  useEffect(() => {
+    if (!infoOpen) return;
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInfoOpen(false);
+    };
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [infoOpen]);
+
+  return (
+    <div className="relative grid h-[calc(100dvh-88px)] grid-cols-1 gap-3 sm:h-[calc(100dvh-96px)] lg:h-[calc(100dvh-112px)] lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-4 xl:grid-cols-[330px_minmax(0,1fr)_300px]">
+      <div className={`${selectedId ? "hidden lg:flex" : "flex"} min-h-0 flex-col`}>
+        <ConversationSidebar
+          threads={filteredThreads}
+          totalCount={threads.length}
+          filter={filter}
+          onFilterChange={setFilter}
+          selectedId={selectedId}
+          onSelect={(id) => {
+            setSelectedId(id);
+            setInfoOpen(false);
+          }}
+          members={members}
+          contacts={contacts}
+        />
+      </div>
+
+      <div className={`${selectedId ? "flex" : "hidden lg:flex"} min-h-0 min-w-0 flex-col`}>
+        <ChatCanvas
+          thread={selectedThread}
+          contact={selectedContact}
+          members={members}
+          onBack={() => setSelectedId(null)}
+          onOpenInfo={() => setInfoOpen(true)}
+        />
+      </div>
 
       <div className="hidden min-h-0 xl:block">
         <ContactContextPanel contact={selectedContact} conversation={selectedThread} />
       </div>
+
+      {infoOpen ? (
+        <div className="fixed inset-0 z-50 xl:hidden" role="dialog" aria-modal="true" aria-label="Información del contacto">
+          <button
+            type="button"
+            aria-label="Cerrar información del contacto"
+            onClick={() => setInfoOpen(false)}
+            className="absolute inset-0 cursor-pointer bg-black/50"
+          />
+          <div className="absolute inset-y-0 right-0 w-full max-w-sm bg-white shadow-2xl">
+            <ContactContextPanel contact={selectedContact} conversation={selectedThread} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

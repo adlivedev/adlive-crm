@@ -33,8 +33,6 @@ const LANGUAGE_OPTIONS = [
 const HEADER_OPTIONS = [
   { value: "NONE", label: "Sin header" },
   { value: "TEXT", label: "Texto" },
-  { value: "IMAGE", label: "Imagen" },
-  { value: "DOCUMENT", label: "Documento" },
 ] as const;
 
 interface SelectFieldProps {
@@ -84,6 +82,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<WhatsAppTemplateButton[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -137,7 +136,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
     onClose();
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!isValidTemplateName(name)) {
       setError("El nombre debe estar en formato snake_case (minúsculas, números y guiones bajos), mínimo 3 caracteres.");
       return;
@@ -154,18 +153,26 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
       setError("El header de tipo Texto necesita contenido.");
       return;
     }
-    createWhatsappTemplate({
-      name,
-      category,
-      language,
-      body_text: body,
-      footer_text: footer.trim() || null,
-      variables_count: variablesCount,
-      header_type: headerType,
-      header_content: headerType === "TEXT" ? headerContent.trim() : headerType === "NONE" ? null : `${headerType.toLowerCase()}:pendiente-de-cargar`,
-      buttons: sanitizeButtons(buttons),
-    });
-    handleClose();
+    setIsSaving(true);
+    setError(null);
+    try {
+      await createWhatsappTemplate({
+        name,
+        category,
+        language,
+        body_text: body,
+        footer_text: footer.trim() || null,
+        variables_count: variablesCount,
+        header_type: headerType,
+        header_content: headerType === "TEXT" ? headerContent.trim() : null,
+        buttons: sanitizeButtons(buttons),
+      });
+      handleClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo crear la plantilla.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const formatButtons = [
@@ -187,7 +194,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
         className="grid grid-cols-1 gap-6 lg:grid-cols-2"
         onSubmit={(event) => {
           event.preventDefault();
-          handleSubmit();
+          void handleSubmit();
         }}
       >
         {/* ============ Columna izquierda: formulario ============ */}
@@ -256,7 +263,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
               onChange={(event) => setBody(event.target.value)}
               rows={5}
               maxLength={1024}
-              placeholder="Hola {{1}}, tu plan de 50GB está listo…"
+              placeholder="Hola {{1}}, gracias por contactarnos. ¿En qué podemos ayudarte?"
               className="w-full resize-y rounded-xl border border-adlive-border bg-white px-4 py-3 text-sm focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
             />
             <div className="flex items-center justify-between text-xs text-adlive-text-muted">
@@ -283,7 +290,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
               id="tpl-footer"
               value={footer}
               onChange={(event) => setFooter(event.target.value.slice(0, 60))}
-              placeholder="ADLIVE SAS · Portabilidad Movistar"
+              placeholder="Tu empresa · Información adicional"
               className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
             />
             <p className="text-right text-xs text-adlive-text-muted">{footer.length}/60</p>
@@ -309,10 +316,10 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
             </p>
           ) : null}
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="secondary" onClick={handleClose}>
+            <Button type="button" variant="secondary" onClick={handleClose} disabled={isSaving}>
               Cancelar
             </Button>
-            <Button type="submit">Crear plantilla</Button>
+            <Button type="submit" isLoading={isSaving} disabled={isSaving}>Crear plantilla</Button>
           </div>
         </div>
       </form>

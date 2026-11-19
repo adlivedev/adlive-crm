@@ -10,6 +10,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        brand: {
+          primary: "var(--brand-primary)",
+          "primary-hover": "var(--brand-primary-hover)",
+          accent: "var(--brand-accent)",
+          "sidebar-bg": "var(--brand-sidebar-bg)",
+          "canvas-bg": "var(--brand-canvas-bg)",
+          ink: "var(--brand-ink)",
+        },
         adlive: {
           primary: "var(--adlive-primary)",
           "primary-hover": "var(--adlive-primary-hover)",

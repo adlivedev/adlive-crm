@@ -1,12 +1,12 @@
 import Link from "next/link";
 
-import { AdliveLogo } from "@/shared/components/AdliveLogo";
+import { BrandLogo } from "@/shared/components/BrandLogo";
 
 /** Estado de error global (ruta inexistente / módulo aún no construido). */
 export default function NotFound() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 bg-adlive-canvas-bg px-6">
-      <AdliveLogo />
+      <BrandLogo />
       <div className="max-w-md text-center">
         <p className="font-mono text-sm font-semibold text-adlive-primary">404</p>
         <h1 className="mt-2 text-2xl font-bold text-adlive-text-main">Página no encontrada</h1>

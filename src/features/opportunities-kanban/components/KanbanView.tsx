@@ -123,7 +123,7 @@ export function KanbanView() {
         <div
           role="list"
           aria-label="Columnas del tablero Kanban"
-          className="flex gap-4 overflow-x-auto pb-4"
+          className="flex snap-x snap-mandatory gap-4 overflow-x-auto pb-4"
           onDragLeave={() => setDropStageId(null)}
         >
           {stages.map((stage, index) => (

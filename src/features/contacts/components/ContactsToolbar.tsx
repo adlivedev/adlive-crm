@@ -102,7 +102,7 @@ export function ContactsToolbar({
                     type="checkbox"
                     checked={visible}
                     onChange={() => onToggleColumn(column)}
-                    className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-[#5b00ff]"
+                    className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-adlive-primary"
                   />
                   {CONTACTS_COLUMN_LABELS[column]}
                 </label>
@@ -112,7 +112,7 @@ export function ContactsToolbar({
         ) : null}
       </div>
 
-      <Button variant="primary" size="sm" onClick={onOpenNew} className="ml-auto h-9 gap-1.5">
+      <Button variant="primary" size="sm" onClick={onOpenNew} className="h-9 w-full gap-1.5 sm:ml-auto sm:w-auto">
         <Plus className="h-4 w-4" aria-hidden />
         Nuevo contacto
       </Button>

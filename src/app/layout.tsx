@@ -23,12 +23,12 @@ const jetbrainsMono = localFont({
 
 export const metadata: Metadata = {
   title: {
-    default: "ADlive CRM",
-    template: "%s · ADlive CRM",
+    default: "CRM",
+    template: "%s · CRM",
   },
   description:
-    "CRM SaaS de ADLIVE SAS para operaciones de portabilidad móvil: contactos, oportunidades, conversaciones de WhatsApp y automatización de Call Center.",
-  applicationName: "ADlive CRM",
+    "Espacio de trabajo comercial: contactos, oportunidades, conversaciones de WhatsApp y automatización.",
+  applicationName: "CRM",
   robots: { index: false, follow: false },
 };
 

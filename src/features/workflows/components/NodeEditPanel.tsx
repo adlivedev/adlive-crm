@@ -231,7 +231,7 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
           </Button>
           <Button variant="secondary" onClick={onSimulate} className="w-full">
             <FlaskConical className="h-4 w-4" aria-hidden />
-            Simular Ejecución de Workflow
+            Inscribir contacto
           </Button>
         </div>
       </div>

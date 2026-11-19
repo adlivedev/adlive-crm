@@ -15,8 +15,8 @@ export interface AiProviderSpec {
 export const AI_PROVIDER_SPECS: AiProviderSpec[] = [
   {
     provider: "integrated",
-    name: "IA incluida",
-    description: "Modelo propio gestionado por ADlive CRM: listo para usar sin configurar nada.",
+    name: "IA de plataforma",
+    description: "Disponible únicamente cuando el operador configura un modelo central para este despliegue.",
     keyPlaceholder: "",
     keyPrefix: "",
   },
@@ -51,7 +51,7 @@ export const AI_PROVIDER_SPECS: AiProviderSpec[] = [
 ];
 
 export const PROVIDER_LABELS: Record<AiBotProvider, string> = {
-  integrated: "IA incluida",
+  integrated: "IA de plataforma",
   openai: "OpenAI (ChatGPT)",
   anthropic: "Anthropic (Claude)",
   grok: "xAI (Grok)",
@@ -65,12 +65,3 @@ export function maskApiKey(raw: string, prefix: string): string {
   if (prefix && trimmed.startsWith(prefix)) return `${prefix}${"•".repeat(8)}`;
   return `${trimmed.slice(0, 3)}${"•".repeat(8)}`;
 }
-
-/** Bot de demostración precargado al pulsar `Bot de ejemplo: Placita Express`. */
-export const DEMO_BOT_INPUT = {
-  name: "Bot de ejemplo: Placita Express",
-  product_line: "Portabilidad Prepago a Pospago",
-  provider: "openai" as AiBotProvider,
-  system_prompt:
-    "Eres el asesor virtual de Placita Express, call center de ADLIVE SAS. Atiende leads de portabilidad Movistar: saluda, identifica el operador actual del cliente, presenta el plan de 50GB + llamadas ilimitadas a $23.000 con el primer mes gratis, supera objeciones de precio y agenda la llamada de cierre con un asesor humano. Responde siempre en español, con tono cercano y máximo 3 líneas por mensaje.",
-};

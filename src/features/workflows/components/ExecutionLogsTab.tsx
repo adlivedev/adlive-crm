@@ -49,7 +49,7 @@ export function ExecutionLogsTab({ enrollments }: ExecutionLogsTabProps) {
       <Card className="flex flex-col items-center gap-2 px-6 py-14 text-center">
         <p className="text-sm font-semibold text-adlive-text-main">Sin logs de ejecución</p>
         <p className="max-w-md text-sm text-adlive-text-muted">
-          Ejecuta el workflow (simulación o inscripción) para ver la trazabilidad paso a paso aquí.
+          Inscribe un contacto para ver aquí la trazabilidad de su ejecución.
         </p>
       </Card>
     );

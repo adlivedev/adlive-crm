@@ -22,7 +22,7 @@ export interface NewBotModalProps {
 export function NewBotModal({ open, onClose, onCreate }: NewBotModalProps) {
   const [name, setName] = useState("");
   const [productLine, setProductLine] = useState("");
-  const [provider, setProvider] = useState<AiBotProvider>("integrated");
+  const [provider, setProvider] = useState<AiBotProvider>("openai");
   const [systemPrompt, setSystemPrompt] = useState("");
   const promptId = "new-bot-system-prompt";
 
@@ -32,7 +32,7 @@ export function NewBotModal({ open, onClose, onCreate }: NewBotModalProps) {
   const handleClose = () => {
     setName("");
     setProductLine("");
-    setProvider("integrated");
+    setProvider("openai");
     setSystemPrompt("");
     onClose();
   };
@@ -47,20 +47,13 @@ export function NewBotModal({ open, onClose, onCreate }: NewBotModalProps) {
   return (
     <Modal open={open} onClose={handleClose} title="Nuevo bot" subtitle="Define el bot por línea de negocio y su System Prompt.">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-        <Input label="Nombre del bot" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Asistente Portabilidad 50GB" />
+        <Input label="Nombre del bot" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Asistente de bienvenida" />
         <Input
           label="Línea de negocio"
           value={productLine}
           onChange={(event) => setProductLine(event.target.value)}
-          placeholder="Ej. Portabilidad Prepago a Pospago"
-          list="product-line-suggestions"
+          placeholder="Ej. Ventas, soporte o servicio al cliente"
         />
-        <datalist id="product-line-suggestions">
-          <option value="Portabilidad Prepago a Pospago" />
-          <option value="Planes móviles prepago" />
-          <option value="Campaña Meta 50GB" />
-          <option value="Ventas B2B" />
-        </datalist>
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="new-bot-provider" className="text-sm font-medium text-adlive-text-main">
@@ -72,7 +65,7 @@ export function NewBotModal({ open, onClose, onCreate }: NewBotModalProps) {
             onChange={(event) => setProvider(event.target.value as AiBotProvider)}
             className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
           >
-            {AI_PROVIDER_SPECS.map((spec) => (
+            {AI_PROVIDER_SPECS.filter((spec) => spec.provider !== "integrated").map((spec) => (
               <option key={spec.provider} value={spec.provider}>
                 {spec.name}
               </option>

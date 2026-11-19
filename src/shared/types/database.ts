@@ -37,11 +37,25 @@ export type MessageStatus = "queued" | "sent" | "delivered" | "read" | "failed";
  * 1. MULTI-TENANCY (AGENCIAS / CUENTAS) Y EQUIPO (CALL CENTER)
  * ========================================================================== */
 
+export interface TenantBranding {
+  brand_name: string;
+  logo_url: string | null;
+  logo_dark_url: string | null;
+  primary_color: string;
+  primary_hover: string;
+  accent_color: string;
+  sidebar_bg: string;
+  canvas_bg: string;
+  ink_color: string;
+}
+
 export interface Tenant {
   id: string;
   name: string;
   slug: string;
   public_webhook_token: string;
+  branding?: TenantBranding;
+  status?: "active" | "suspended";
   created_at: string;
   updated_at: string;
 }
@@ -174,6 +188,8 @@ export interface Message {
   conversation_id: string;
   sender_member_id: string | null;
   wa_message_id: string | null;
+  /** Presente en respuestas vinculadas; opcional para compatibilidad con proyecciones antiguas. */
+  in_reply_to_message_id?: string | null;
   direction: MessageDirection;
   msg_type: MessageType;
   body: string | null;
@@ -352,8 +368,9 @@ export interface TenantIntegrationVault {
   provider: IntegrationProvider;
   is_connected: boolean;
   public_metadata: Record<string, string>;
-  /** Nunca se envía al navegador: permanece cifrada en servidor (AES-256-GCM). */
-  encrypted_credentials: string;
+  /** Solo existe en consultas de servidor; las APIs públicas nunca lo devuelven. */
+  encrypted_credentials?: string;
+  masked_key?: string | null;
   updated_at: string;
 }
 

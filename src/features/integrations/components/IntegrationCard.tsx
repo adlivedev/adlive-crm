@@ -4,7 +4,6 @@
  * M8 — Tarjeta interactiva de un proveedor de integración.
  */
 
-import { PhoneCall } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
@@ -17,13 +16,11 @@ import type { IntegrationSpec } from "./integrationsData";
 export interface IntegrationCardProps {
   spec: IntegrationSpec;
   integration: TenantIntegrationVault | undefined;
-  voiceEnabled: boolean;
   onConfigure: () => void;
-  onToggleVoice: () => void;
   onDisconnect: () => void;
 }
 
-export function IntegrationCard({ spec, integration, voiceEnabled, onConfigure, onToggleVoice, onDisconnect }: IntegrationCardProps) {
+export function IntegrationCard({ spec, integration, onConfigure, onDisconnect }: IntegrationCardProps) {
   const Icon = spec.icon;
   const connected = integration?.is_connected ?? false;
   const isWhatsapp = spec.provider === "whatsapp_cloud_api";
@@ -51,18 +48,12 @@ export function IntegrationCard({ spec, integration, voiceEnabled, onConfigure, 
       {isWhatsapp && connected && integration ? (
         <dl className="flex flex-col gap-1 rounded-xl bg-adlive-canvas-bg px-4 py-3 text-sm">
           <div className="flex justify-between gap-4">
-            <dt className="text-adlive-text-muted">Línea</dt>
-            <dd className="font-mono font-medium text-adlive-text-main">{integration.public_metadata.phone_number ?? "—"}</dd>
+            <dt className="text-adlive-text-muted">Phone Number ID</dt>
+            <dd className="break-all text-right font-mono text-xs font-medium text-adlive-text-main">{integration.public_metadata.phone_number_id ?? "—"}</dd>
           </div>
           <div className="flex justify-between gap-4">
             <dt className="text-adlive-text-muted">WABA ID</dt>
-            <dd className="font-mono font-medium text-adlive-text-main">{integration.public_metadata.waba_id ?? "—"}</dd>
-          </div>
-          <div className="flex justify-between gap-4">
-            <dt className="text-adlive-text-muted">Llamadas de voz</dt>
-            <dd>
-              <Badge tone={voiceEnabled ? "cyan" : "neutral"}>{voiceEnabled ? "Activas" : "Inactivas"}</Badge>
-            </dd>
+            <dd className="break-all text-right font-mono text-xs font-medium text-adlive-text-main">{integration.public_metadata.waba_id ?? "—"}</dd>
           </div>
         </dl>
       ) : null}
@@ -73,12 +64,6 @@ export function IntegrationCard({ spec, integration, voiceEnabled, onConfigure, 
             <Button size="sm" variant="secondary" onClick={onConfigure}>
               {isWhatsapp ? "Reconectar" : "Gestionar"}
             </Button>
-            {isWhatsapp ? (
-              <Button size="sm" variant="secondary" onClick={onToggleVoice} aria-pressed={voiceEnabled}>
-                <PhoneCall className="h-4 w-4" aria-hidden />
-                {voiceEnabled ? "Desactivar llamadas" : "Activar llamadas"}
-              </Button>
-            ) : null}
             {confirmDisconnect ? (
               <>
                 <Button size="sm" variant="danger" onClick={onDisconnect}>

@@ -1,0 +1,87 @@
+import "server-only";
+
+import { z } from "zod";
+
+import { decryptVaultCredentials } from "@/shared/lib/crypto/vaultCipher";
+import { createAdminClient } from "@/shared/lib/supabase/admin";
+import type { WhatsAppTemplateButton } from "@/shared/types/database";
+
+const GRAPH_API_VERSION = "v21.0";
+const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+
+interface WhatsAppConfig { accessToken: string; phoneNumberId: string; wabaId: string }
+export interface MetaTemplateInput {
+  name: string; category: "MARKETING" | "UTILITY" | "AUTHENTICATION"; language: string;
+  body_text: string; footer_text?: string | null; variables_count: number;
+  header_type?: "NONE" | "TEXT" | "IMAGE" | "DOCUMENT"; header_content?: string | null;
+  buttons?: WhatsAppTemplateButton[];
+}
+
+async function config(tenantId: string): Promise<WhatsAppConfig> {
+  const { data, error } = await createAdminClient().from("tenant_integrations_vault")
+    .select("public_metadata,encrypted_credentials").eq("tenant_id", tenantId)
+    .eq("provider", "whatsapp_cloud_api").eq("is_connected", true).single();
+  if (error || !data) throw new Error("WhatsApp Cloud API no está conectado para este workspace.");
+  const credentials = decryptVaultCredentials(data.encrypted_credentials, tenantId, "whatsapp_cloud_api");
+  const accessToken = credentials.access_token?.trim();
+  const phoneNumberId = typeof data.public_metadata?.phone_number_id === "string" ? data.public_metadata.phone_number_id : "";
+  const wabaId = typeof data.public_metadata?.waba_id === "string" ? data.public_metadata.waba_id : "";
+  if (!accessToken || !phoneNumberId || !wabaId) throw new Error("La configuración de WhatsApp está incompleta.");
+  return { accessToken, phoneNumberId, wabaId };
+}
+
+async function graph<T>(path: string, accessToken: string, init: RequestInit, schema: z.ZodType<T>): Promise<T> {
+  const response = await fetch(`${GRAPH_BASE}${path}`, {
+    ...init, signal: AbortSignal.timeout(15_000), cache: "no-store",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json", ...init.headers },
+  });
+  const json: unknown = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = z.object({ error: z.object({ message: z.string() }).optional() }).safeParse(json);
+    throw new Error(message.success && message.data.error ? `Meta: ${message.data.error.message.slice(0, 300)}` : `Meta respondió con estado ${response.status}.`);
+  }
+  return schema.parse(json);
+}
+
+export async function sendMetaText(tenantId: string, to: string, body: string): Promise<string> {
+  const settings = await config(tenantId);
+  const result = await graph(`/${settings.phoneNumberId}/messages`, settings.accessToken, {
+    method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: to.replace(/\D/g, ""), type: "text", text: { preview_url: false, body } }),
+  }, z.object({ messages: z.array(z.object({ id: z.string() })).min(1) }));
+  return result.messages[0]!.id;
+}
+
+export async function sendMetaTemplate(tenantId: string, to: string, template: { name: string; language: string }, variables: string[]): Promise<string> {
+  const settings = await config(tenantId);
+  const components = variables.length > 0 ? [{ type: "body", parameters: variables.map((text) => ({ type: "text", text })) }] : [];
+  const result = await graph(`/${settings.phoneNumberId}/messages`, settings.accessToken, {
+    method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to: to.replace(/\D/g, ""), type: "template", template: { name: template.name, language: { code: template.language }, components } }),
+  }, z.object({ messages: z.array(z.object({ id: z.string() })).min(1) }));
+  return result.messages[0]!.id;
+}
+
+export async function createMetaTemplate(tenantId: string, input: MetaTemplateInput): Promise<string> {
+  const settings = await config(tenantId);
+  const components: Array<Record<string, unknown>> = [{ type: "BODY", text: input.body_text }];
+  if (input.header_type === "TEXT" && input.header_content) components.push({ type: "HEADER", format: "TEXT", text: input.header_content });
+  if (input.footer_text) components.push({ type: "FOOTER", text: input.footer_text });
+  const buttons = (input.buttons ?? []).map((button) => button.type === "QUICK_REPLY"
+    ? { type: button.type, text: button.text }
+    : button.type === "URL" ? { type: button.type, text: button.text, url: button.url } : { type: button.type, text: button.text, phone_number: button.phone_number });
+  if (buttons.length > 0) components.push({ type: "BUTTONS", buttons });
+  const result = await graph(`/${settings.wabaId}/message_templates`, settings.accessToken, {
+    method: "POST", body: JSON.stringify({ name: input.name, category: input.category, language: input.language, components }),
+  }, z.object({ id: z.string() }));
+  return result.id;
+}
+
+const remoteTemplateSchema = z.object({ data: z.array(z.object({
+  id: z.string(), name: z.string(), status: z.string(), category: z.string(), language: z.string(),
+  components: z.array(z.object({ type: z.string(), format: z.string().optional(), text: z.string().optional(), buttons: z.array(z.unknown()).optional() }).passthrough()).optional(),
+}).passthrough()) });
+
+export async function listMetaTemplates(tenantId: string) {
+  const settings = await config(tenantId);
+  const result = await graph(`/${settings.wabaId}/message_templates?limit=100&fields=id,name,status,category,language,components`, settings.accessToken, { method: "GET" }, remoteTemplateSchema);
+  return result.data;
+}

@@ -61,9 +61,9 @@ export function TemplatePreview({ headerType, headerContent, body, footer, butto
 
       {/* Cabecera del chat simulado */}
       <div className="mb-3 flex items-center gap-2 rounded-xl bg-[#075E54] px-3 py-2 text-white">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold">AD</span>
+        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/20 text-[10px] font-bold">WA</span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-xs font-semibold">ADLIVE SAS · Movistar</p>
+          <p className="truncate text-xs font-semibold">Cuenta de WhatsApp Business</p>
           <p className="text-[10px] text-white/70">en línea</p>
         </div>
         <span className="rounded bg-white/15 px-1.5 py-0.5 text-[9px] font-medium">Vista previa</span>

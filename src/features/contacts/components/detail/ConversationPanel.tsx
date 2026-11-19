@@ -3,17 +3,12 @@
 /**
  * M3 — Columna central de la ficha 360°: conversación de WhatsApp.
  *
- * - Burbujas salientes en Violeta ADlive (#5B00FF) con hora y doble check.
- * - VALIDADOR ESTRICTO de la ventana de 24 h de Meta: si
- *   NOW() − last_inbound_at > 24 h, se muestra el banner gris con ícono de
- *   reloj, se bloquea el input libre (placeholder «Ventana de 24 h cerrada»)
- *   y solo queda habilitado `Enviar plantilla` (selector rápido de plantillas
- *   aprobadas que envía al chat).
- * - `Simular respuesta entrante del cliente` abre la ventana en vivo
- *   (crea la conversación si el contacto aún no tiene una).
+ * - Burbujas salientes con el color de marca del workspace, hora y estado real.
+ * - La ventana de 24 h de Meta se valida también en el servidor; al cerrarse,
+ *   solo queda habilitado el envío de plantillas aprobadas.
  */
 
-import { CheckCheck, Clock3, ExternalLink, Mic, MousePointerClick, SendHorizonal } from "lucide-react";
+import { Clock3, ExternalLink, Mic, SendHorizonal } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -21,32 +16,16 @@ import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
 import { Card } from "@/shared/components/ui/Card";
 import { formatRelativeTime, formatTime } from "@/shared/lib/format";
+import { fillTemplateBody, isMetaWindowOpen, META_WINDOW_MS } from "@/shared/lib/whatsapp";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact, Conversation, WhatsAppTemplate } from "@/shared/types/database";
-
-/** Regla de Meta Cloud API: la sesión de atención dura 24 h desde el último mensaje entrante. */
-export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
 /** Reloj interno que se actualiza cada 30 s para re-evaluar la ventana en vivo. */
 const CLOCK_TICK_MS = 30_000;
 
-const SIMULATED_INBOUND_MESSAGES = [
-  "Sí, me interesa el plan de 50GB. ¿Cómo empezamos con la portabilidad?",
-  "Buenas, ¿sigue disponible la oferta de $38.000 con llamadas ilimitadas?",
-  "Claro, te envío la cédula y el NIP por aquí mismo.",
-  "Perfecto, ¿para cuándo me llegaría la SIM nueva?",
-];
 
-/** Reemplaza las variables {{1}}, {{2}}… con datos del contacto. */
-function fillTemplateBody(template: WhatsAppTemplate, contact: Contact): string {
-  const firstName = contact.full_name.trim().split(/\s+/)[0] ?? contact.full_name;
-  return template.body_text
-    .replaceAll("{{1}}", firstName)
-    .replaceAll("{{2}}", "$38.000")
-    .replaceAll("{{3}}", "50GB + llamadas ilimitadas");
-}
 
 export function ConversationPanel({ contact, conversation }: { contact: Contact; conversation: Conversation | null }) {
-  const { messages, templates, sendMessage, receiveInboundMessage, ensureConversation } = useCrm();
+  const { messages, templates, sendMessage, ensureConversation } = useCrm();
   const [draft, setDraft] = useState("");
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [nowTick, setNowTick] = useState<Date>(() => new Date());
@@ -78,34 +57,32 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
   }, [conversationMessages.length]);
 
   const lastInboundAt = conversation?.last_inbound_at ?? null;
+  const isWindowOpen = conversation ? isMetaWindowOpen(conversation, nowTick) : false;
   const elapsedMs = lastInboundAt ? nowTick.getTime() - new Date(lastInboundAt).getTime() : null;
-  const isWindowOpen = elapsedMs !== null && elapsedMs < META_WINDOW_MS;
-  const remainingMs = elapsedMs !== null ? Math.max(0, META_WINDOW_MS - elapsedMs) : 0;
+  const remainingMs = isWindowOpen && elapsedMs !== null ? Math.max(0, META_WINDOW_MS - elapsedMs) : 0;
   const remainingHours = Math.floor(remainingMs / 3_600_000);
   const remainingMinutes = Math.floor((remainingMs % 3_600_000) / 60_000);
 
-  const handleSendFreeMessage = () => {
+  const handleSendFreeMessage = async () => {
     const body = draft.trim();
     if (!body || !isWindowOpen) return;
-    const conversationId = conversation ? conversation.id : ensureConversation(contact.id);
-    sendMessage(conversationId, { body });
-    setDraft("");
+    try {
+      const conversationId = conversation?.id ?? await ensureConversation(contact.id);
+      await sendMessage(conversationId, { body });
+      setDraft("");
+    } catch { /* El store muestra el error real del servidor. */ }
   };
 
-  const handleSendTemplate = (template: WhatsAppTemplate) => {
-    const conversationId = conversation ? conversation.id : ensureConversation(contact.id);
-    sendMessage(conversationId, {
-      body: fillTemplateBody(template, contact),
-      msg_type: "template",
-      template_name: template.name,
-    });
-    setTemplatePickerOpen(false);
-  };
-
-  const handleSimulateInbound = () => {
-    const conversationId = conversation ? conversation.id : ensureConversation(contact.id);
-    const body = SIMULATED_INBOUND_MESSAGES[Math.floor(Math.random() * SIMULATED_INBOUND_MESSAGES.length)]!;
-    receiveInboundMessage(conversationId, body);
+  const handleSendTemplate = async (template: WhatsAppTemplate) => {
+    try {
+      const conversationId = conversation?.id ?? await ensureConversation(contact.id);
+      await sendMessage(conversationId, {
+        body: fillTemplateBody(template, contact),
+        msg_type: "template",
+        template_name: template.name,
+      });
+      setTemplatePickerOpen(false);
+    } catch { /* El store muestra el error real del servidor. */ }
   };
 
   return (
@@ -155,7 +132,7 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
         {conversationMessages.length === 0 ? (
           <p className="my-auto text-center text-sm text-adlive-text-muted">
             Aún no hay mensajes en esta conversación.
-            <span className="mt-1 block text-xs">Usa «Simular respuesta entrante del cliente» para abrir la ventana de 24 h en vivo.</span>
+            <span className="mt-1 block text-xs">Los mensajes entrantes aparecerán aquí cuando lleguen mediante el webhook verificado.</span>
           </p>
         ) : (
           conversationMessages.map((message) => {
@@ -185,7 +162,7 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
                 </div>
                 <span className={`flex items-center gap-1 text-[11px] ${isOutbound ? "text-adlive-text-muted" : "text-adlive-text-muted/80"}`}>
                   {formatTime(message.created_at)}
-                  {isOutbound ? <CheckCheck className="h-3.5 w-3.5 text-adlive-cyan" aria-label="Mensaje leído (doble check)" /> : null}
+                  {isOutbound ? <span>· {({ queued: "En cola", sent: "Enviado", delivered: "Entregado", read: "Leído", failed: "Fallido" } as const)[message.status]}</span> : null}
                 </span>
               </div>
             );
@@ -272,14 +249,6 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={handleSimulateInbound}
-          className="inline-flex cursor-pointer items-center gap-1.5 self-start text-xs font-semibold text-adlive-text-muted transition-colors hover:text-adlive-primary"
-        >
-          <MousePointerClick className="h-3.5 w-3.5" aria-hidden />
-          Simular respuesta entrante del cliente
-        </button>
       </div>
     </Card>
   );

@@ -1,94 +1,50 @@
 "use client";
 
-/**
- * CAPA ADAPTADORA — Store reactivo del CRM (Etapa A, Mock en memoria).
- *
- * ÚNICA puerta de datos de la aplicación: los componentes leen y mutan
- * colecciones exclusivamente mediante `useCrm()`. En la Etapa B (Supabase
- * vía MCP) se reemplaza el interior de este archivo sin tocar la UI.
- */
-
+import type { User } from "@supabase/supabase-js";
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import { initialData, mockTenantStats, type CrmInitialData, type TenantStatsBase } from "@/shared/mocks/initialData";
+import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
 import { subscribeToInboxRealtime } from "@/shared/services/inboxRealtimeService";
 import type {
+  AiBot,
   Contact,
+  ContactActivity,
+  ContactNote,
+  ContactTask,
   Conversation,
+  CustomFieldDefinition,
+  CustomValue,
+  IntegrationProvider,
   Message,
+  MessageType,
   Opportunity,
   Pipeline,
   PipelineStage,
   Tenant,
+  TenantIntegrationVault,
   TenantMember,
+  WhatsAppTemplate,
+  WhatsAppTemplateButton,
+  Workflow,
   WorkflowEnrollment,
 } from "@/shared/types/database";
-import {
-  EMPTY_STATS_DELTA,
-  addContactActivity,
-  addContactNote,
-  addContactTask,
-  addCustomField,
-  addCustomValue,
-  addWorkflowActionNode,
-  assignConversation,
-  createAiBot,
-  createContact,
-  createConversation,
-  createOpportunity,
-  createWhatsappTemplate,
-  createWorkflow,
-  deleteContact,
-  deleteConversation,
-  deleteCustomField,
-  deleteCustomValue,
-  deleteMember,
-  deleteOpportunity,
-  deleteWhatsappTemplate,
-  deleteWorkflow,
-  enrollContactInWorkflow,
-  inviteMember,
-  moveOpportunityToStage,
-  nowIso,
-  newId,
-  receiveInboundMessage,
-  sendMessage,
-  setContactTypification,
-  setIntegrationConnected,
-  toggleAiBot,
-  toggleContactStar,
-  toggleContactTask,
-  toggleWorkflowStatus,
-  updateContact,
-  updateMember,
-  updateWorkflow,
-  updateWorkflowNodeConfig,
-  type AddWorkflowActionNodeInput,
-  type CrmState,
-  type CreateContactInput,
-  type SendMessageInput,
-  type SimulatedReply,
-  type UpdateWorkflowInput,
-} from "./crmActions";
 
-/* ============================================================================
- * SESIÓN Y AUTENTICACIÓN (mock tipado, sin credenciales reales)
- * ========================================================================== */
+const ACTIVE_TENANT_KEY = "crm-active-tenant";
+const CONTACTS_PAGE_SIZE = 50;
 
 export interface CrmSession {
   email: string;
   tenantId: string;
 }
-
-const SESSION_STORAGE_KEY = "adlive-crm-session";
 
 export interface UserAccount {
   tenant: Tenant;
@@ -115,13 +71,86 @@ export interface PipelineStageSummary {
   totalValue: number;
 }
 
+export interface CreateContactInput {
+  full_name: string;
+  phone_e164: string;
+  email?: string | null;
+  company_name?: string | null;
+  lead_source?: string;
+  tags?: string[];
+  assigned_member_id?: string | null;
+}
+
+export interface SendMessageInput {
+  body: string;
+  msg_type?: MessageType;
+  template_name?: string | null;
+}
+
+export interface ContactQuery {
+  page: number;
+  search: string;
+  tag: string;
+  source: string;
+  createdFrom: string;
+  createdTo: string;
+  actionFrom: string;
+  actionTo: string;
+}
+
+export interface AuthResult {
+  ok: boolean;
+  error?: string;
+  requiresEmailConfirmation?: boolean;
+}
+
+export type ContactPatch = Partial<Pick<Contact,
+  "full_name" | "phone_e164" | "email" | "company_name" | "lead_source" | "tags" | "custom_fields" | "assigned_member_id"
+>>;
+export type MemberPatch = Partial<Pick<TenantMember, "is_active" | "can_view_all_contacts" | "presence">>;
+export type CreateOpportunityInput = Pick<Opportunity, "contact_id" | "pipeline_id" | "stage_id" | "title" | "monetary_value"> & { assigned_member_id?: string | null };
+export type CreateTemplateInput = Pick<WhatsAppTemplate, "name" | "category" | "language" | "body_text" | "variables_count"> & {
+  footer_text?: string | null;
+  header_type?: "NONE" | "TEXT" | "IMAGE" | "DOCUMENT";
+  header_content?: string | null;
+  buttons?: WhatsAppTemplateButton[];
+};
+export type CreateWorkflowInput = Pick<Workflow, "name" | "trigger_type"> & { description?: string | null };
+export type UpdateWorkflowInput = Partial<Pick<Workflow, "name" | "description" | "allow_reenrollment">>;
+export type CreateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt">;
+export type CreateCustomFieldInput = Pick<CustomFieldDefinition, "field_key" | "field_label" | "field_type"> & { options?: string[] };
+export type SimulatedReply = "Si" | "No" | "Otra respuesta" | "Undelivered" | "Time Out";
+export type AddWorkflowActionNodeInput = { label: string; config: Record<string, string>; edgeLabel?: string | null };
+
+interface CrmData {
+  contacts: Contact[];
+  customFieldDefinitions: CustomFieldDefinition[];
+  customValues: CustomValue[];
+  pipelines: Pipeline[];
+  pipelineStages: PipelineStage[];
+  opportunities: Opportunity[];
+  conversations: Conversation[];
+  messages: Message[];
+  contactNotes: ContactNote[];
+  tenantMembers: TenantMember[];
+  contactTasks: ContactTask[];
+  contactActivities: ContactActivity[];
+  whatsappTemplates: WhatsAppTemplate[];
+  workflows: Workflow[];
+  workflowEnrollments: WorkflowEnrollment[];
+  aiBots: AiBot[];
+  integrationsVault: TenantIntegrationVault[];
+}
+
 interface CrmContextValue {
   isHydrated: boolean;
+  isLoadingData: boolean;
+  isMutating: boolean;
+  dataError: string | null;
   session: CrmSession | null;
   activeTenant: Tenant | null;
   activeMember: TenantMember | null;
   userAccounts: UserAccount[];
-  /** Colecciones ya filtradas por la cuenta activa. */
   contacts: Contact[];
   conversations: Conversation[];
   messages: Message[];
@@ -129,416 +158,684 @@ interface CrmContextValue {
   pipelines: Pipeline[];
   pipelineStages: PipelineStage[];
   members: TenantMember[];
-  templates: CrmInitialData["whatsappTemplates"];
-  workflows: CrmInitialData["workflows"];
+  templates: WhatsAppTemplate[];
+  workflows: Workflow[];
   workflowEnrollments: WorkflowEnrollment[];
-  aiBots: CrmInitialData["aiBots"];
-  integrations: CrmInitialData["integrationsVault"];
-  customFields: CrmInitialData["customFieldDefinitions"];
-  customValues: CrmInitialData["customValues"];
-  notes: CrmInitialData["contactNotes"];
-  tasks: CrmInitialData["contactTasks"];
-  activities: CrmInitialData["contactActivities"];
-  /** KPIs ejecutivos = línea base del mock + deltas de operaciones en vivo. */
+  aiBots: AiBot[];
+  integrations: TenantIntegrationVault[];
+  customFields: CustomFieldDefinition[];
+  customValues: CustomValue[];
+  notes: ContactNote[];
+  tasks: ContactTask[];
+  activities: ContactActivity[];
   dashboardStats: DashboardStats;
   monthlyPerformance: MonthlyPerformancePoint[];
   pipelineSummary: PipelineStageSummary[];
-  /* Autenticación y multi-tenancy */
-  login: (email: string, password: string) => boolean;
-  register: (agencyName: string, email: string, password: string) => boolean;
-  logout: () => void;
+  contactTotal: number;
+  contactPageSize: number;
+  contactQuery: ContactQuery;
+  setContactQuery: (patch: Partial<ContactQuery>) => void;
+  login: (email: string, password: string) => Promise<AuthResult>;
+  register: (agencyName: string, email: string, password: string) => Promise<AuthResult>;
+  logout: () => Promise<void>;
   switchTenant: (tenantId: string) => void;
-  /* CRUD en memoria */
+  refreshData: () => Promise<void>;
   createContact: (input: CreateContactInput) => void;
-  updateContact: (contactId: string, patch: Parameters<typeof updateContact>[2]) => void;
+  importContacts: (inputs: CreateContactInput[]) => Promise<{ imported: number; failed: number }>;
+  updateContact: (contactId: string, patch: ContactPatch) => void;
   deleteContact: (contactId: string) => void;
   toggleContactStar: (contactId: string) => void;
   setContactTypification: (contactId: string, typification: string | null) => void;
-  createOpportunity: (input: Parameters<typeof createOpportunity>[2]) => void;
+  createOpportunity: (input: CreateOpportunityInput) => void;
   moveOpportunityToStage: (opportunityId: string, targetStageId: string) => void;
   deleteOpportunity: (opportunityId: string) => void;
-  sendMessage: (conversationId: string, input: SendMessageInput) => void;
-  receiveInboundMessage: (conversationId: string, body: string, msgType?: Message["msg_type"]) => void;
+  sendMessage: (conversationId: string, input: SendMessageInput) => Promise<void>;
+  setConversationHandler: (conversationId: string, handlerMode: Conversation["handler_mode"]) => void;
   assignConversation: (conversationId: string, memberId: string | null) => void;
   deleteConversation: (conversationId: string) => void;
   addContactNote: (contactId: string, content: string) => void;
   addContactTask: (contactId: string, title: string, dueAt: string | null) => void;
   toggleContactTask: (taskId: string) => void;
-  /** Devuelve el id de la conversación del contacto, creándola si no existe. */
-  ensureConversation: (contactId: string) => string;
+  ensureConversation: (contactId: string) => Promise<string>;
   addContactActivity: (contactId: string, activityType: string, description: string, metadata?: Record<string, string>) => void;
-  createWhatsappTemplate: (input: Parameters<typeof createWhatsappTemplate>[2]) => void;
+  createWhatsappTemplate: (input: CreateTemplateInput) => Promise<void>;
   deleteWhatsappTemplate: (templateId: string) => void;
-  createWorkflow: (input: Parameters<typeof createWorkflow>[2]) => void;
+  createWorkflow: (input: CreateWorkflowInput) => void;
   toggleWorkflowStatus: (workflowId: string) => void;
   deleteWorkflow: (workflowId: string) => void;
   updateWorkflow: (workflowId: string, input: UpdateWorkflowInput) => void;
   updateWorkflowNodeConfig: (workflowId: string, nodeId: string, config: Record<string, string>) => void;
   addWorkflowActionNode: (workflowId: string, sourceNodeId: string, input: AddWorkflowActionNodeInput) => void;
-  /** Inscribe un contacto y ejecuta el flujo paso a paso (simulación del servidor). */
   enrollContactInWorkflow: (workflowId: string, contactId: string, simulatedReply: SimulatedReply | null) => void;
   inviteMember: (email: string, role: TenantMember["role"]) => void;
-  updateMember: (memberId: string, patch: Parameters<typeof updateMember>[2]) => void;
+  updateMember: (memberId: string, patch: MemberPatch) => void;
   deleteMember: (memberId: string) => void;
-  createAiBot: (input: Parameters<typeof createAiBot>[2]) => void;
+  createAiBot: (input: CreateAiBotInput) => void;
   toggleAiBot: (botId: string) => void;
-  setIntegrationConnected: (provider: Parameters<typeof setIntegrationConnected>[2], connected: boolean) => void;
-  addCustomField: (input: Parameters<typeof addCustomField>[2]) => void;
+  setIntegrationConnected: (provider: IntegrationProvider, connected: boolean, credentials?: Record<string, string>) => Promise<void>;
+  addCustomField: (input: CreateCustomFieldInput) => void;
   deleteCustomField: (fieldId: string) => void;
   addCustomValue: (valueKey: string, valueContent: string) => void;
   deleteCustomValue: (valueId: string) => void;
 }
 
-const CrmContext = createContext<CrmContextValue | null>(null);
-
-const ZERO_BASE: TenantStatsBase = {
-  total_contacts: 0,
-  open_opportunities: 0,
-  total_revenue: 0,
-  unanswered: 0,
-  stage_counts: {},
-  monthly: {},
+const EMPTY_DATA: CrmData = {
+  contacts: [], customFieldDefinitions: [], customValues: [], pipelines: [], pipelineStages: [],
+  opportunities: [], conversations: [], messages: [], contactNotes: [], tenantMembers: [], contactTasks: [], contactActivities: [],
+  whatsappTemplates: [], workflows: [], workflowEnrollments: [], aiBots: [], integrationsVault: [],
 };
 
-function cloneInitialData(): CrmInitialData {
-  return structuredClone(initialData);
+const EMPTY_CONTACT_QUERY: ContactQuery = {
+  page: 0, search: "", tag: "all", source: "all", createdFrom: "", createdTo: "", actionFrom: "", actionTo: "",
+};
+
+const CrmContext = createContext<CrmContextValue | null>(null);
+
+function rows<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+
+function cleanSearch(value: string): string {
+  return value.trim().replace(/[%_,().\\]/g, " ").replace(/\s+/g, " ").slice(0, 100);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "No se pudo completar la operación.";
 }
 
 export function CrmProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<CrmState>(() => ({ data: cloneInitialData(), statsDelta: {} }));
+  const [data, setData] = useState<CrmData>(EMPTY_DATA);
+  const [memberships, setMemberships] = useState<TenantMember[]>([]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
   const [session, setSession] = useState<CrmSession | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
-
-  /* Restaurar sesión mock desde sessionStorage (evita rebotes en recargas). */
-  useEffect(() => {
-    try {
-      const raw = window.sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CrmSession;
-        if (parsed.email && parsed.tenantId) setSession(parsed);
-      }
-    } catch {
-      window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    }
-    setIsHydrated(true);
-  }, []);
-
-  const persistSession = useCallback((next: CrmSession | null) => {
-    setSession(next);
-    try {
-      if (next) window.sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(next));
-      else window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
-    } catch {
-      /* sessionStorage no disponible: la sesión vive solo en memoria. */
-    }
-  }, []);
+  const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isMutating, setIsMutating] = useState(false);
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [contactTotal, setContactTotal] = useState(0);
+  const [workspaceContactTotal, setWorkspaceContactTotal] = useState(0);
+  const [contactQuery, setContactQueryState] = useState<ContactQuery>(EMPTY_CONTACT_QUERY);
+  const workspaceRequest = useRef(0);
+  const contactRequest = useRef(0);
 
   const activeTenantId = session?.tenantId ?? null;
+  const activeTenant = useMemo(() => tenants.find((tenant) => tenant.id === activeTenantId) ?? null, [tenants, activeTenantId]);
+  const activeMember = useMemo(() => memberships.find((member) => member.tenant_id === activeTenantId) ?? null, [memberships, activeTenantId]);
+  const userAccounts = useMemo<UserAccount[]>(() => memberships.flatMap((member) => {
+    const tenant = tenants.find((item) => item.id === member.tenant_id);
+    return tenant ? [{ tenant, memberId: member.id, role: member.role }] : [];
+  }), [memberships, tenants]);
 
-  /* Supabase Realtime queda aislado en el adaptador: la UI conserva su API y diseño. */
+  const clearSession = useCallback(() => {
+    setSession(null);
+    setMemberships([]);
+    setTenants([]);
+    setData(EMPTY_DATA);
+    setContactTotal(0);
+    setWorkspaceContactTotal(0);
+    window.sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+  }, []);
+
+  const loadMemberships = useCallback(async (user: User) => {
+    const supabase = createClient();
+    const email = user.email?.toLowerCase();
+    if (!email) {
+      clearSession();
+      setDataError("La cuenta de autenticación no tiene un correo electrónico.");
+      setIsHydrated(true);
+      return;
+    }
+    const memberResult = await supabase.from("tenant_members").select("*").eq("user_id", user.id).eq("is_active", true);
+    if (memberResult.error) {
+      clearSession();
+      setDataError("No se pudieron cargar tus membresías. Inténtalo de nuevo.");
+      setIsHydrated(true);
+      return;
+    }
+    const nextMemberships = rows<TenantMember>(memberResult.data);
+    if (nextMemberships.length === 0) {
+      clearSession();
+      setDataError("Tu usuario aún no pertenece a un espacio de trabajo. Solicita una invitación al administrador.");
+      setIsHydrated(true);
+      return;
+    }
+    const tenantResult = await supabase.from("tenants").select("id,name,slug,branding,status,created_at,updated_at")
+      .in("id", nextMemberships.map((member) => member.tenant_id));
+    if (tenantResult.error) {
+      clearSession();
+      setDataError("No se pudieron cargar los espacios de trabajo.");
+      setIsHydrated(true);
+      return;
+    }
+    const nextTenants = rows<Tenant>(tenantResult.data).filter((tenant) => tenant.status !== "suspended");
+    const allowedIds = new Set(nextTenants.map((tenant) => tenant.id));
+    const allowedMemberships = nextMemberships.filter((member) => allowedIds.has(member.tenant_id));
+    if (allowedMemberships.length === 0) {
+      clearSession();
+      setDataError("El espacio de trabajo está suspendido o no está disponible.");
+      setIsHydrated(true);
+      return;
+    }
+    const remembered = window.sessionStorage.getItem(ACTIVE_TENANT_KEY);
+    const tenantId = allowedMemberships.some((member) => member.tenant_id === remembered)
+      ? remembered!
+      : allowedMemberships[0]!.tenant_id;
+    setMemberships(allowedMemberships);
+    setTenants(nextTenants);
+    setSession({ email, tenantId });
+    window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+    setDataError(null);
+    setIsHydrated(true);
+  }, [clearSession]);
+
+  useEffect(() => {
+    if (!isSupabaseBrowserConfigured()) {
+      setDataError("Faltan las variables públicas de Supabase. Revisa la configuración del entorno.");
+      setIsHydrated(true);
+      return;
+    }
+    const supabase = createClient();
+    let mounted = true;
+    void supabase.auth.getUser().then(({ data: authData, error }) => {
+      if (!mounted) return;
+      if (error || !authData.user) {
+        clearSession();
+        setIsHydrated(true);
+        return;
+      }
+      void loadMemberships(authData.user);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
+      window.setTimeout(() => {
+        if (!mounted) return;
+        if (authSession?.user) void loadMemberships(authSession.user);
+        else {
+          clearSession();
+          setIsHydrated(true);
+        }
+      }, 0);
+    });
+    return () => {
+      mounted = false;
+      listener.subscription.unsubscribe();
+    };
+  }, [clearSession, loadMemberships]);
+
+  const loadWorkspace = useCallback(async () => {
+    if (!activeTenantId || !activeMember) {
+      setData(EMPTY_DATA);
+      return;
+    }
+    const requestId = ++workspaceRequest.current;
+    setIsLoadingData(true);
+    const supabase = createClient();
+    const tenantId = activeTenantId;
+    const restrict = activeMember.role === "agent" && !activeMember.can_view_all_contacts;
+    let opportunityQuery = supabase.from("opportunities").select("*").eq("tenant_id", tenantId);
+    let conversationQuery = supabase.from("conversations").select("*").eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
+    if (restrict) {
+      opportunityQuery = opportunityQuery.eq("assigned_member_id", activeMember.id);
+      conversationQuery = conversationQuery.eq("assigned_member_id", activeMember.id);
+    }
+    try {
+      const [pipelineR, stageR, opportunityR, conversationR, messageR, memberR, templateR, workflowR, enrollmentR, botR, fieldR, valueR, noteR, taskR, activityR, contactCountR, integrationResponse] = await Promise.all([
+        supabase.from("pipelines").select("*").eq("tenant_id", tenantId),
+        supabase.from("pipeline_stages").select("*").eq("tenant_id", tenantId).order("position"),
+        opportunityQuery,
+        conversationQuery,
+        supabase.from("messages").select("*").eq("tenant_id", tenantId).order("created_at").limit(2000),
+        supabase.from("tenant_members").select("*").eq("tenant_id", tenantId).order("created_at"),
+        supabase.from("whatsapp_templates").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+        supabase.from("workflows").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+        supabase.from("workflow_enrollments").select("*").eq("tenant_id", tenantId).order("enrolled_at", { ascending: false }).limit(1000),
+        supabase.from("ai_bots").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }),
+        supabase.from("custom_field_definitions").select("*").eq("tenant_id", tenantId).order("created_at"),
+        supabase.from("custom_values").select("*").eq("tenant_id", tenantId).order("created_at"),
+        supabase.from("contact_notes").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
+        supabase.from("contact_tasks").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
+        supabase.from("contact_activities").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
+        supabase.from("contacts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
+        fetch(`/api/v1/integrations?tenantId=${encodeURIComponent(tenantId)}`, { cache: "no-store" }),
+      ]);
+      const failed = [pipelineR, stageR, opportunityR, conversationR, messageR, memberR, templateR, workflowR, enrollmentR, botR, fieldR, valueR, noteR, taskR, activityR, contactCountR].find((result) => result.error);
+      if (failed?.error) throw new Error(failed.error.message);
+      if (!integrationResponse.ok) throw new Error("No se pudieron cargar las integraciones del espacio de trabajo.");
+      const integrationResult = await integrationResponse.json() as { integrations?: TenantIntegrationVault[] };
+      if (requestId !== workspaceRequest.current) return;
+      setData((previous) => ({
+        ...previous,
+        pipelines: rows<Pipeline>(pipelineR.data), pipelineStages: rows<PipelineStage>(stageR.data),
+        opportunities: rows<Opportunity>(opportunityR.data).map((item) => ({ ...item, monetary_value: Number(item.monetary_value) })),
+        conversations: rows<Conversation>(conversationR.data), messages: rows<Message>(messageR.data),
+        whatsappTemplates: rows<WhatsAppTemplate>(templateR.data), workflows: rows<Workflow>(workflowR.data),
+        workflowEnrollments: rows<WorkflowEnrollment>(enrollmentR.data), aiBots: rows<AiBot>(botR.data),
+        integrationsVault: rows<TenantIntegrationVault>(integrationResult.integrations),
+        customFieldDefinitions: rows<CustomFieldDefinition>(fieldR.data), customValues: rows<CustomValue>(valueR.data),
+        contactNotes: rows<ContactNote>(noteR.data), tenantMembers: rows<TenantMember>(memberR.data),
+        contactTasks: rows<ContactTask>(taskR.data), contactActivities: rows<ContactActivity>(activityR.data),
+      }));
+      setMemberships((previous) => previous.map((member) => member.tenant_id === tenantId
+        ? rows<TenantMember>(memberR.data).find((item) => item.id === member.id) ?? member
+        : member));
+      setWorkspaceContactTotal(contactCountR.count ?? 0);
+      setDataError(null);
+    } catch (error) {
+      if (requestId === workspaceRequest.current) setDataError(`No se pudieron cargar los datos: ${errorMessage(error)}`);
+    } finally {
+      if (requestId === workspaceRequest.current) setIsLoadingData(false);
+    }
+  }, [activeMember, activeTenantId]);
+
+  const loadContacts = useCallback(async () => {
+    if (!activeTenantId || !activeMember) {
+      setData((previous) => ({ ...previous, contacts: [] }));
+      setContactTotal(0);
+      return;
+    }
+    const requestId = ++contactRequest.current;
+    const supabase = createClient();
+    const page = Math.max(0, contactQuery.page);
+    let query = supabase.from("contacts").select("*", { count: "exact" }).eq("tenant_id", activeTenantId);
+    if (activeMember.role === "agent" && !activeMember.can_view_all_contacts) query = query.eq("assigned_member_id", activeMember.id);
+    const search = cleanSearch(contactQuery.search);
+    if (search) query = query.or(`full_name.ilike.%${search}%,phone_e164.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`);
+    if (contactQuery.tag !== "all") query = query.contains("tags", [contactQuery.tag]);
+    if (contactQuery.source !== "all") query = query.eq("lead_source", contactQuery.source);
+    if (contactQuery.createdFrom) query = query.gte("created_at", `${contactQuery.createdFrom}T00:00:00.000Z`);
+    if (contactQuery.createdTo) query = query.lte("created_at", `${contactQuery.createdTo}T23:59:59.999Z`);
+    if (contactQuery.actionFrom) query = query.gte("last_interaction_at", `${contactQuery.actionFrom}T00:00:00.000Z`);
+    if (contactQuery.actionTo) query = query.lte("last_interaction_at", `${contactQuery.actionTo}T23:59:59.999Z`);
+    const { data: result, count, error } = await query.order("created_at", { ascending: false }).range(page * CONTACTS_PAGE_SIZE, page * CONTACTS_PAGE_SIZE + CONTACTS_PAGE_SIZE - 1);
+    if (requestId !== contactRequest.current) return;
+    if (error) {
+      setDataError(`No se pudieron cargar los contactos: ${error.message}`);
+      return;
+    }
+    setData((previous) => ({ ...previous, contacts: rows<Contact>(result) }));
+    setContactTotal(count ?? 0);
+  }, [activeMember, activeTenantId, contactQuery]);
+
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  useEffect(() => { void loadContacts(); }, [loadContacts]);
+
   useEffect(() => {
     if (!activeTenantId) return;
-
-    function upsertRow<T extends { id: string }>(rows: T[], row: T): T[] {
-      const index = rows.findIndex((current) => current.id === row.id);
-      if (index < 0) return [row, ...rows];
-      const next = rows.slice();
-      next[index] = row;
+    const upsert = <T extends { id: string }>(items: T[], item: T): T[] => {
+      const index = items.findIndex((current) => current.id === item.id);
+      if (index < 0) return [item, ...items];
+      const next = items.slice();
+      next[index] = item;
       return next;
-    }
-
+    };
     const unsubscribe = subscribeToInboxRealtime(activeTenantId, {
-      onContact: (contact) => setState((prev) => ({
-        ...prev,
-        data: { ...prev.data, contacts: upsertRow(prev.data.contacts, contact) },
+      onContact: (contact) => {
+        if (activeMember?.role === "agent" && !activeMember.can_view_all_contacts && contact.assigned_member_id !== activeMember.id) return;
+        setData((previous) => ({ ...previous, contacts: upsert(previous.contacts, contact) }));
+      },
+      onConversation: (conversation) => {
+        if (activeMember?.role === "agent" && !activeMember.can_view_all_contacts && conversation.assigned_member_id !== activeMember.id) return;
+        setData((previous) => ({ ...previous, conversations: upsert(previous.conversations, conversation) }));
+      },
+      onMessage: (message) => setData((previous) => ({
+        ...previous,
+        messages: upsert(previous.messages, message).sort((a, b) => a.created_at.localeCompare(b.created_at)),
       })),
-      onConversation: (conversation) => setState((prev) => ({
-        ...prev,
-        data: { ...prev.data, conversations: upsertRow(prev.data.conversations, conversation) },
-      })),
-      onMessage: (message) => setState((prev) => {
-        if (prev.data.messages.some((current) => current.id === message.id)) return prev;
-        return { ...prev, data: { ...prev.data, messages: [...prev.data.messages, message] } };
-      }),
     });
     return () => unsubscribe?.();
-  }, [activeTenantId]);
+  }, [activeMember, activeTenantId]);
 
-  const userAccounts = useMemo<UserAccount[]>(() => {
-    if (!session) return [];
-    return state.data.tenants
-      .map((tenant) => {
-        const member = state.data.tenantMembers.find((m) => m.tenant_id === tenant.id && m.email === session.email);
-        return member ? { tenant, memberId: member.id, role: member.role } : null;
-      })
-      .filter((account): account is UserAccount => account !== null);
-  }, [state.data.tenants, state.data.tenantMembers, session]);
+  const refreshData = useCallback(async () => {
+    await Promise.all([loadWorkspace(), loadContacts()]);
+  }, [loadContacts, loadWorkspace]);
 
-  const activeTenant = useMemo(
-    () => state.data.tenants.find((t) => t.id === activeTenantId) ?? null,
-    [state.data.tenants, activeTenantId],
-  );
+  const runMutationAsync = useCallback(async (operation: () => Promise<void>): Promise<void> => {
+    setIsMutating(true);
+    setDataError(null);
+    try {
+      await operation();
+      await refreshData();
+    } catch (error) {
+      const message = errorMessage(error);
+      setDataError(message);
+      throw new Error(message);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [refreshData]);
 
-  const activeMember = useMemo(
-    () =>
-      session && activeTenantId
-        ? state.data.tenantMembers.find((m) => m.tenant_id === activeTenantId && m.email === session.email) ?? null
-        : null,
-    [state.data.tenantMembers, activeTenantId, session],
-  );
+  const runMutation = useCallback((operation: () => Promise<void>) => {
+    void runMutationAsync(operation).catch(() => undefined);
+  }, [runMutationAsync]);
 
-  /* ---- Colecciones filtradas por cuenta activa ---- */
-  const byTenant = useCallback(
-    <T extends { tenant_id: string }>(rows: T[]): T[] =>
-      activeTenantId ? rows.filter((row) => row.tenant_id === activeTenantId) : [],
-    [activeTenantId],
-  );
+  const requireTenant = useCallback((): string => {
+    if (!activeTenantId || !activeMember) throw new Error("No hay un espacio de trabajo activo.");
+    return activeTenantId;
+  }, [activeMember, activeTenantId]);
 
-  const contacts = useMemo(() => byTenant(state.data.contacts), [byTenant, state.data.contacts]);
-  const opportunities = useMemo(() => byTenant(state.data.opportunities), [byTenant, state.data.opportunities]);
-  const pipelines = useMemo(() => byTenant(state.data.pipelines), [byTenant, state.data.pipelines]);
-  const conversations = useMemo(() => byTenant(state.data.conversations), [byTenant, state.data.conversations]);
-  const members = useMemo(() => byTenant(state.data.tenantMembers), [byTenant, state.data.tenantMembers]);
-  const pipelineStages = useMemo(
-    () => (activeTenantId ? state.data.pipelineStages.filter((s) => s.tenant_id === activeTenantId).sort((a, b) => a.position - b.position) : []),
-    [state.data.pipelineStages, activeTenantId],
-  );
-  const messages = useMemo(() => byTenant(state.data.messages), [byTenant, state.data.messages]);
-  const templates = useMemo(() => byTenant(state.data.whatsappTemplates), [byTenant, state.data.whatsappTemplates]);
-  const workflows = useMemo(() => byTenant(state.data.workflows), [byTenant, state.data.workflows]);
-  const workflowEnrollments = useMemo(() => byTenant(state.data.workflowEnrollments), [byTenant, state.data.workflowEnrollments]);
-  const aiBots = useMemo(() => byTenant(state.data.aiBots), [byTenant, state.data.aiBots]);
-  const integrations = useMemo(() => byTenant(state.data.integrationsVault), [byTenant, state.data.integrationsVault]);
-  const customFields = useMemo(() => byTenant(state.data.customFieldDefinitions), [byTenant, state.data.customFieldDefinitions]);
-  const customValues = useMemo(() => byTenant(state.data.customValues), [byTenant, state.data.customValues]);
-  const notes = useMemo(() => byTenant(state.data.contactNotes), [byTenant, state.data.contactNotes]);
-  const tasks = useMemo(() => byTenant(state.data.contactTasks), [byTenant, state.data.contactTasks]);
-  const activities = useMemo(() => byTenant(state.data.contactActivities), [byTenant, state.data.contactActivities]);
+  const setIntegrationConnected = useCallback(async (
+    provider: IntegrationProvider,
+    connected: boolean,
+    credentials?: Record<string, string>,
+  ): Promise<void> => {
+    setIsMutating(true);
+    setDataError(null);
+    try {
+      const response = await fetch("/api/v1/integrations", {
+        method: connected ? "PUT" : "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenantId: requireTenant(), provider, ...(connected ? { credentials: credentials ?? {} } : {}) }),
+      });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No se pudo actualizar la integración.");
+      await refreshData();
+    } catch (error) {
+      const message = errorMessage(error);
+      setDataError(message);
+      throw new Error(message);
+    } finally {
+      setIsMutating(false);
+    }
+  }, [refreshData, requireTenant]);
 
-  /* ---- KPIs: línea base del mock + deltas en vivo ---- */
-  const dashboardStats = useMemo<DashboardStats>(() => {
-    if (!activeTenantId) return { totalContacts: 0, openOpportunities: 0, totalRevenue: 0, unanswered: 0 };
-    const base = mockTenantStats[activeTenantId] ?? ZERO_BASE;
-    const delta = state.statsDelta[activeTenantId] ?? EMPTY_STATS_DELTA;
-    return {
-      totalContacts: Math.max(0, base.total_contacts + delta.totalContacts),
-      openOpportunities: Math.max(0, base.open_opportunities + delta.openOpportunities),
-      totalRevenue: Math.max(0, base.total_revenue + delta.revenue),
-      unanswered: Math.max(0, base.unanswered + delta.unanswered),
-    };
-  }, [activeTenantId, state.statsDelta]);
+  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+    try {
+      const { data: result, error } = await createClient().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
+      if (error || !result.user) return { ok: false, error: "El correo o la contraseña no son válidos." };
+      await loadMemberships(result.user);
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "No se pudo iniciar sesión. Revisa la configuración e inténtalo de nuevo." };
+    }
+  }, [loadMemberships]);
+
+  const register = useCallback(async (agencyName: string, email: string, password: string): Promise<AuthResult> => {
+    try {
+      const response = await fetch("/api/v1/auth/bootstrap-tenant", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agencyName, email, password }),
+      });
+      const result = await response.json() as { error?: string; requiresEmailConfirmation?: boolean };
+      if (!response.ok) return { ok: false, error: result.error ?? "No se pudo crear la cuenta." };
+      return { ok: true, requiresEmailConfirmation: result.requiresEmailConfirmation };
+    } catch {
+      return { ok: false, error: "No se pudo crear la cuenta. Inténtalo de nuevo." };
+    }
+  }, []);
+
+  const logout = useCallback(async () => {
+    if (isSupabaseBrowserConfigured()) await createClient().auth.signOut();
+    clearSession();
+  }, [clearSession]);
+
+  const switchTenant = useCallback((tenantId: string) => {
+    if (!session || !memberships.some((member) => member.tenant_id === tenantId)) return;
+    setData(EMPTY_DATA);
+    setContactQueryState(EMPTY_CONTACT_QUERY);
+    setSession({ ...session, tenantId });
+    window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+  }, [memberships, session]);
+
+  const setContactQuery = useCallback((patch: Partial<ContactQuery>) => {
+    setContactQueryState((previous) => ({ ...previous, ...patch, page: patch.page ?? (Object.keys(patch).some((key) => key !== "page") ? 0 : previous.page) }));
+  }, []);
+
+  const importContacts = useCallback(async (inputs: CreateContactInput[]) => {
+    const tenantId = requireTenant();
+    if (!activeMember) return { imported: 0, failed: inputs.length };
+    const payload = inputs.map((input) => ({
+      tenant_id: tenantId,
+      assigned_member_id: input.assigned_member_id ?? (activeMember.role === "agent" ? activeMember.id : null),
+      full_name: input.full_name.trim(), phone_e164: input.phone_e164.replace(/\D/g, ""),
+      email: input.email?.trim() || null, company_name: input.company_name?.trim() || null,
+      lead_source: input.lead_source?.trim() || "WhatsApp", tags: input.tags ?? [], custom_fields: {},
+    }));
+    const { error } = await createClient().from("contacts").insert(payload);
+    if (error) {
+      setDataError(`No se importaron los contactos: ${error.message}`);
+      return { imported: 0, failed: inputs.length };
+    }
+    await refreshData();
+    return { imported: inputs.length, failed: 0 };
+  }, [activeMember, refreshData, requireTenant]);
+
+  const dashboardStats = useMemo<DashboardStats>(() => ({
+    totalContacts: workspaceContactTotal,
+    openOpportunities: data.opportunities.filter((item) => item.status === "open").length,
+    totalRevenue: data.opportunities.filter((item) => item.status === "won").reduce((sum, item) => sum + item.monetary_value, 0),
+    unanswered: data.conversations.filter((item) => item.needs_reply).length,
+  }), [data.conversations, data.opportunities, workspaceContactTotal]);
 
   const monthlyPerformance = useMemo<MonthlyPerformancePoint[]>(() => {
-    if (!activeTenantId) return [];
-    const base = mockTenantStats[activeTenantId] ?? ZERO_BASE;
-    const delta = state.statsDelta[activeTenantId] ?? EMPTY_STATS_DELTA;
-    const keys = [...new Set([...Object.keys(base.monthly), ...Object.keys(delta.monthly)])].sort();
-    return keys.slice(-6).map((monthKey) => ({
-      monthKey,
-      ganadas: (base.monthly[monthKey]?.ganadas ?? 0) + (delta.monthly[monthKey]?.ganadas ?? 0),
-      perdidas: (base.monthly[monthKey]?.perdidas ?? 0) + (delta.monthly[monthKey]?.perdidas ?? 0),
-    }));
-  }, [activeTenantId, state.statsDelta]);
+    const months = new Map<string, MonthlyPerformancePoint>();
+    const now = new Date();
+    for (let offset = 5; offset >= 0; offset -= 1) {
+      const date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+      const monthKey = date.toISOString().slice(0, 7);
+      months.set(monthKey, { monthKey, ganadas: 0, perdidas: 0 });
+    }
+    for (const opportunity of data.opportunities) {
+      if (opportunity.status === "open" || !opportunity.closed_at) continue;
+      const point = months.get(opportunity.closed_at.slice(0, 7));
+      if (!point) continue;
+      if (opportunity.status === "won") point.ganadas += 1;
+      if (opportunity.status === "lost") point.perdidas += 1;
+    }
+    return [...months.values()];
+  }, [data.opportunities]);
 
-  const pipelineSummary = useMemo<PipelineStageSummary[]>(() => {
-    if (!activeTenantId) return [];
-    const base = mockTenantStats[activeTenantId] ?? ZERO_BASE;
-    const delta = state.statsDelta[activeTenantId] ?? EMPTY_STATS_DELTA;
-    return pipelineStages
-      .filter((stage) => stage.stage_category === "open")
-      .map((stage) => {
-        const liveValue = opportunities
-          .filter((o) => o.stage_id === stage.id && o.status === "open")
-          .reduce((sum, o) => sum + o.monetary_value, 0);
-        return {
-          stage,
-          count: Math.max(0, (base.stage_counts[stage.id] ?? 0) + (delta.stageCounts[stage.id] ?? 0)),
-          totalValue: liveValue,
-        };
+  const pipelineStages = useMemo(() => data.pipelineStages.slice().sort((a, b) => a.position - b.position), [data.pipelineStages]);
+  const pipelineSummary = useMemo<PipelineStageSummary[]>(() => pipelineStages.filter((stage) => stage.stage_category === "open").map((stage) => {
+    const items = data.opportunities.filter((item) => item.stage_id === stage.id && item.status === "open");
+    return { stage, count: items.length, totalValue: items.reduce((sum, item) => sum + item.monetary_value, 0) };
+  }), [data.opportunities, pipelineStages]);
+
+  const value = useMemo<CrmContextValue>(() => ({
+    isHydrated, isLoadingData, isMutating, dataError, session, activeTenant, activeMember, userAccounts,
+    contacts: data.contacts, conversations: data.conversations, messages: data.messages, opportunities: data.opportunities,
+    pipelines: data.pipelines, pipelineStages, members: data.tenantMembers,
+    templates: data.whatsappTemplates, workflows: data.workflows, workflowEnrollments: data.workflowEnrollments,
+    aiBots: data.aiBots, integrations: data.integrationsVault, customFields: data.customFieldDefinitions,
+    customValues: data.customValues, notes: data.contactNotes, tasks: data.contactTasks, activities: data.contactActivities,
+    dashboardStats, monthlyPerformance, pipelineSummary, contactTotal, contactPageSize: CONTACTS_PAGE_SIZE,
+    contactQuery, setContactQuery, login, register, logout, switchTenant, refreshData,
+    createContact: (input) => runMutation(async () => {
+      const tenantId = requireTenant();
+      const { error } = await createClient().from("contacts").insert({
+        tenant_id: tenantId, assigned_member_id: input.assigned_member_id ?? (activeMember?.role === "agent" ? activeMember.id : null),
+        full_name: input.full_name.trim(), phone_e164: input.phone_e164.replace(/\D/g, ""), email: input.email?.trim() || null,
+        company_name: input.company_name?.trim() || null, lead_source: input.lead_source?.trim() || "WhatsApp",
+        tags: input.tags ?? [], custom_fields: {}, last_interaction_at: new Date().toISOString(),
       });
-  }, [activeTenantId, pipelineStages, opportunities, state.statsDelta]);
-
-  /* ---- Autenticación mock ---- */
-  const login = useCallback(
-    (email: string, _password: string): boolean => {
-      const normalizedEmail = email.trim().toLowerCase();
-      if (!normalizedEmail.includes("@")) return false;
-      const membership = state.data.tenantMembers.find((m) => m.email === normalizedEmail)
-        ?? state.data.tenantMembers.find((m) => m.role === "admin");
-      if (!membership) return false;
-      persistSession({ email: membership.email, tenantId: membership.tenant_id });
-      return true;
-    },
-    [state.data.tenantMembers, persistSession],
-  );
-
-  const register = useCallback(
-    (agencyName: string, email: string, _password: string): boolean => {
-      const normalizedEmail = email.trim().toLowerCase();
-      const trimmedAgency = agencyName.trim();
-      if (!normalizedEmail.includes("@") || trimmedAgency.length < 2) return false;
-      const tenantId = newId("t");
-      const timestamp = nowIso();
-      const slug = trimmedAgency.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const pipelineId = newId("p");
-      const stageNames: Array<[string, PipelineStage["stage_category"]]> = [
-        ["Nuevo Lead", "open"],
-        ["Contactado", "open"],
-        ["Interesado", "open"],
-        ["En Validación NIP", "open"],
-        ["Ganado", "won"],
-        ["Perdido", "lost"],
-      ];
-      setState((prev) => {
-        const next: CrmState = { data: structuredClone(prev.data), statsDelta: prev.statsDelta };
-        next.data.tenants.push({
-          id: tenantId,
-          name: trimmedAgency,
-          slug: `${slug}-${tenantId.slice(-6)}`,
-          public_webhook_token: `whk_${crypto.randomUUID().replace(/-/g, "").slice(0, 24)}`,
-          created_at: timestamp,
-          updated_at: timestamp,
-        });
-        next.data.tenantMembers.push({
-          id: newId("m"),
-          tenant_id: tenantId,
-          user_id: null,
-          email: normalizedEmail,
-          role: "owner",
-          is_active: true,
-          can_view_all_contacts: true,
-          presence: "online",
-          last_assigned_at: null,
-          created_at: timestamp,
-        });
-        next.data.pipelines.push({
-          id: pipelineId,
-          tenant_id: tenantId,
-          name: "Pipeline Principal",
-          is_default: true,
-          created_at: timestamp,
-        });
-        stageNames.forEach(([name, category], index) => {
-          next.data.pipelineStages.push({
-            id: newId("st"),
-            pipeline_id: pipelineId,
-            tenant_id: tenantId,
-            name,
-            position: index,
-            stage_category: category,
-            created_at: timestamp,
-          });
-        });
-        return next;
-      });
-      persistSession({ email: normalizedEmail, tenantId });
-      return true;
-    },
-    [persistSession],
-  );
-
-  const logout = useCallback(() => persistSession(null), [persistSession]);
-
-  const switchTenant = useCallback(
-    (tenantId: string) => {
-      if (!session) return;
-      const membership = state.data.tenantMembers.find((m) => m.tenant_id === tenantId && m.email === session.email);
-      if (!membership) return;
-      persistSession({ email: session.email, tenantId });
-    },
-    [session, state.data.tenantMembers, persistSession],
-  );
-
-  /* ---- CRUD (delega en acciones puras con la cuenta activa) ---- */
-  const requireTenant = useCallback((): string => {
-    if (!activeTenantId) throw new Error("crmStore: no hay cuenta activa.");
-    return activeTenantId;
-  }, [activeTenantId]);
-
-  const value = useMemo<CrmContextValue>(
-    () => ({
-      isHydrated,
-      session,
-      activeTenant,
-      activeMember,
-      userAccounts,
-      contacts,
-      conversations,
-      messages,
-      opportunities,
-      pipelines,
-      pipelineStages,
-      members,
-      templates,
-      workflows,
-      workflowEnrollments,
-      aiBots,
-      integrations,
-      customFields,
-      customValues,
-      notes,
-      tasks,
-      activities,
-      dashboardStats,
-      monthlyPerformance,
-      pipelineSummary,
-      login,
-      register,
-      logout,
-      switchTenant,
-      createContact: (input) => setState((prev) => createContact(prev, requireTenant(), activeMember?.id ?? null, input)),
-      updateContact: (contactId, patch) => setState((prev) => updateContact(prev, contactId, patch)),
-      deleteContact: (contactId) => setState((prev) => deleteContact(prev, contactId)),
-      toggleContactStar: (contactId) => setState((prev) => toggleContactStar(prev, contactId)),
-      setContactTypification: (contactId, typification) => setState((prev) => setContactTypification(prev, contactId, typification)),
-      createOpportunity: (input) => setState((prev) => createOpportunity(prev, requireTenant(), input)),
-      moveOpportunityToStage: (opportunityId, targetStageId) => setState((prev) => moveOpportunityToStage(prev, opportunityId, targetStageId, prev.data.pipelineStages)),
-      deleteOpportunity: (opportunityId) => setState((prev) => deleteOpportunity(prev, opportunityId)),
-      sendMessage: (conversationId, input) => setState((prev) => sendMessage(prev, conversationId, { ...input, sender_member_id: activeMember?.id ?? null })),
-      receiveInboundMessage: (conversationId, body, msgType) => setState((prev) => receiveInboundMessage(prev, conversationId, body, msgType)),
-      assignConversation: (conversationId, memberId) => setState((prev) => assignConversation(prev, conversationId, memberId)),
-      deleteConversation: (conversationId) => setState((prev) => deleteConversation(prev, conversationId)),
-      addContactNote: (contactId, content) => setState((prev) => addContactNote(prev, requireTenant(), contactId, activeMember?.id ?? null, content)),
-      addContactTask: (contactId, title, dueAt) => setState((prev) => addContactTask(prev, requireTenant(), contactId, activeMember?.id ?? null, title, dueAt)),
-      toggleContactTask: (taskId) => setState((prev) => toggleContactTask(prev, taskId)),
-      ensureConversation: (contactId) => {
-        const existing = conversations.find((cv) => cv.contact_id === contactId);
-        if (existing) return existing.id;
-        const conversationId = newId("cv");
-        setState((prev) => createConversation(prev, requireTenant(), conversationId, contactId, activeMember?.id ?? null));
-        return conversationId;
-      },
-      addContactActivity: (contactId, activityType, description, metadata) =>
-        setState((prev) => addContactActivity(prev, requireTenant(), contactId, activeMember?.id ?? null, activityType, description, metadata)),
-      createWhatsappTemplate: (input) => setState((prev) => createWhatsappTemplate(prev, requireTenant(), input)),
-      deleteWhatsappTemplate: (templateId) => setState((prev) => deleteWhatsappTemplate(prev, templateId)),
-      createWorkflow: (input) => setState((prev) => createWorkflow(prev, requireTenant(), input)),
-      toggleWorkflowStatus: (workflowId) => setState((prev) => toggleWorkflowStatus(prev, workflowId)),
-      deleteWorkflow: (workflowId) => setState((prev) => deleteWorkflow(prev, workflowId)),
-      updateWorkflow: (workflowId, input) => setState((prev) => updateWorkflow(prev, workflowId, input)),
-      updateWorkflowNodeConfig: (workflowId, nodeId, config) => setState((prev) => updateWorkflowNodeConfig(prev, workflowId, nodeId, config)),
-      addWorkflowActionNode: (workflowId, sourceNodeId, input) => setState((prev) => addWorkflowActionNode(prev, workflowId, sourceNodeId, input)),
-      enrollContactInWorkflow: (workflowId, contactId, simulatedReply) =>
-        setState((prev) => enrollContactInWorkflow(prev, requireTenant(), workflowId, contactId, simulatedReply)),
-      inviteMember: (email, role) => setState((prev) => inviteMember(prev, requireTenant(), email, role)),
-      updateMember: (memberId, patch) => setState((prev) => updateMember(prev, memberId, patch)),
-      deleteMember: (memberId) => setState((prev) => deleteMember(prev, memberId)),
-      createAiBot: (input) => setState((prev) => createAiBot(prev, requireTenant(), input)),
-      toggleAiBot: (botId) => setState((prev) => toggleAiBot(prev, botId)),
-      setIntegrationConnected: (provider, connected) => setState((prev) => setIntegrationConnected(prev, requireTenant(), provider, connected)),
-      addCustomField: (input) => setState((prev) => addCustomField(prev, requireTenant(), input)),
-      deleteCustomField: (fieldId) => setState((prev) => deleteCustomField(prev, fieldId)),
-      addCustomValue: (valueKey, valueContent) => setState((prev) => addCustomValue(prev, requireTenant(), valueKey, valueContent)),
-      deleteCustomValue: (valueId) => setState((prev) => deleteCustomValue(prev, valueId)),
+      if (error) throw new Error(error.message);
     }),
-    [
-      isHydrated, session, activeTenant, activeMember, userAccounts,
-      contacts, conversations, messages, opportunities, pipelines, pipelineStages, members,
-      templates, workflows, workflowEnrollments, aiBots, integrations, customFields, customValues,
-      notes, tasks, activities, dashboardStats, monthlyPerformance, pipelineSummary,
-      login, register, logout, switchTenant, requireTenant,
-    ],
-  );
+    importContacts,
+    updateContact: (contactId, patch) => runMutation(async () => {
+      const { error } = await createClient().from("contacts").update(patch).eq("id", contactId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    deleteContact: (contactId) => runMutation(async () => {
+      const { error } = await createClient().from("contacts").delete().eq("id", contactId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    toggleContactStar: (contactId) => runMutation(async () => {
+      const contact = data.contacts.find((item) => item.id === contactId);
+      if (!contact) return;
+      const { error } = await createClient().from("contacts").update({ is_starred: !contact.is_starred }).eq("id", contactId);
+      if (error) throw new Error(error.message);
+    }),
+    setContactTypification: (contactId, typification) => runMutation(async () => {
+      const { error } = await createClient().from("contacts").update({ typification }).eq("id", contactId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    createOpportunity: (input) => runMutation(async () => {
+      const { error } = await createClient().from("opportunities").insert({
+        ...input, tenant_id: requireTenant(), assigned_member_id: input.assigned_member_id ?? (activeMember?.role === "agent" ? activeMember.id : null), status: "open",
+      });
+      if (error) throw new Error(error.message);
+    }),
+    moveOpportunityToStage: (opportunityId, targetStageId) => runMutation(async () => {
+      const stage = pipelineStages.find((item) => item.id === targetStageId);
+      const opportunity = data.opportunities.find((item) => item.id === opportunityId);
+      if (!stage || !opportunity) return;
+      const closedAt = stage.stage_category === "open" ? null : new Date().toISOString();
+      const { error } = await createClient().from("opportunities").update({ stage_id: targetStageId, status: stage.stage_category, closed_at: closedAt }).eq("id", opportunityId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+      if (stage.stage_category === "won") await createClient().from("contacts").update({ is_closed_client: true, typification: "Cliente cerrado" }).eq("id", opportunity.contact_id);
+    }),
+    deleteOpportunity: (opportunityId) => runMutation(async () => {
+      const { error } = await createClient().from("opportunities").delete().eq("id", opportunityId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    sendMessage: (conversationId, input) => runMutationAsync(async () => {
+      const response = await fetch("/api/v1/whatsapp/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, ...input }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar el mensaje.");
+    }),
+    setConversationHandler: (conversationId, handlerMode) => runMutation(async () => {
+      const { error } = await createClient().from("conversations").update({ handler_mode: handlerMode })
+        .eq("id", conversationId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    assignConversation: (conversationId, memberId) => runMutation(async () => {
+      const conversation = data.conversations.find((item) => item.id === conversationId);
+      if (!conversation) return;
+      const supabase = createClient();
+      const { error } = await supabase.from("conversations").update({ assigned_member_id: memberId }).eq("id", conversationId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+      const contactResult = await supabase.from("contacts").update({ assigned_member_id: memberId }).eq("id", conversation.contact_id);
+      if (contactResult.error) throw new Error(contactResult.error.message);
+    }),
+    deleteConversation: (conversationId) => runMutation(async () => {
+      const { error } = await createClient().from("conversations").delete().eq("id", conversationId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    addContactNote: (contactId, content) => runMutation(async () => {
+      const { error } = await createClient().from("contact_notes").insert({ tenant_id: requireTenant(), contact_id: contactId, author_member_id: activeMember?.id, content: content.trim() });
+      if (error) throw new Error(error.message);
+    }),
+    addContactTask: (contactId, title, dueAt) => runMutation(async () => {
+      const { error } = await createClient().from("contact_tasks").insert({ tenant_id: requireTenant(), contact_id: contactId, assigned_member_id: activeMember?.id, title: title.trim(), due_at: dueAt });
+      if (error) throw new Error(error.message);
+    }),
+    toggleContactTask: (taskId) => runMutation(async () => {
+      const task = data.contactTasks.find((item) => item.id === taskId);
+      if (!task) return;
+      const { error } = await createClient().from("contact_tasks").update({ is_completed: !task.is_completed }).eq("id", taskId);
+      if (error) throw new Error(error.message);
+    }),
+    ensureConversation: async (contactId) => {
+      const existing = data.conversations.find((item) => item.contact_id === contactId);
+      if (existing) return existing.id;
+      const conversationId = crypto.randomUUID();
+      await runMutationAsync(async () => {
+        const { error } = await createClient().from("conversations").insert({ id: conversationId, tenant_id: requireTenant(), contact_id: contactId, assigned_member_id: activeMember?.id ?? null, channel: "whatsapp", handler_mode: "human" });
+        if (error) throw new Error(error.message);
+      });
+      return conversationId;
+    },
+    addContactActivity: (contactId, activityType, description, metadata = {}) => runMutation(async () => {
+      const { error } = await createClient().from("contact_activities").insert({ tenant_id: requireTenant(), contact_id: contactId, actor_member_id: activeMember?.id, activity_type: activityType, description: description.trim(), metadata });
+      if (error) throw new Error(error.message);
+    }),
+    createWhatsappTemplate: (input) => runMutationAsync(async () => {
+      const response = await fetch("/api/v1/whatsapp/templates", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: requireTenant(), ...input }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No se pudo crear la plantilla en Meta.");
+    }),
+    deleteWhatsappTemplate: (templateId) => runMutation(async () => {
+      const { error } = await createClient().from("whatsapp_templates").delete().eq("id", templateId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    createWorkflow: (input) => runMutation(async () => {
+      const { error } = await createClient().from("workflows").insert({ ...input, tenant_id: requireTenant(), name: input.name.trim(), description: input.description?.trim() || null, status: "Draft", canvas_definition: { nodes: [], edges: [] } });
+      if (error) throw new Error(error.message);
+    }),
+    toggleWorkflowStatus: (workflowId) => runMutation(async () => {
+      const workflow = data.workflows.find((item) => item.id === workflowId);
+      if (!workflow) return;
+      const { error } = await createClient().from("workflows").update({ status: workflow.status === "Published" ? "Draft" : "Published" }).eq("id", workflowId);
+      if (error) throw new Error(error.message);
+    }),
+    deleteWorkflow: (workflowId) => runMutation(async () => {
+      const { error } = await createClient().from("workflows").delete().eq("id", workflowId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    updateWorkflow: (workflowId, input) => runMutation(async () => {
+      const { error } = await createClient().from("workflows").update(input).eq("id", workflowId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    updateWorkflowNodeConfig: (workflowId, nodeId, config) => runMutation(async () => {
+      const workflow = data.workflows.find((item) => item.id === workflowId);
+      if (!workflow) return;
+      const canvas = { ...workflow.canvas_definition, nodes: workflow.canvas_definition.nodes.map((node) => node.id === nodeId ? { ...node, config: { ...node.config, ...config } } : node) };
+      const { error } = await createClient().from("workflows").update({ canvas_definition: canvas }).eq("id", workflowId);
+      if (error) throw new Error(error.message);
+    }),
+    addWorkflowActionNode: (workflowId, sourceNodeId, input) => runMutation(async () => {
+      const workflow = data.workflows.find((item) => item.id === workflowId);
+      const source = workflow?.canvas_definition.nodes.find((node) => node.id === sourceNodeId);
+      if (!workflow || !source) return;
+      const nodeId = crypto.randomUUID();
+      const node = { id: nodeId, type: "action" as const, label: input.label.trim(), config: input.config, position: { x: source.position.x, y: source.position.y + 150 } };
+      const edgeLabel = input.edgeLabel ?? null;
+      const previousEdge = workflow.canvas_definition.edges.find((edge) => edge.source_node_id === sourceNodeId && edge.label === edgeLabel);
+      const edges = workflow.canvas_definition.edges.filter((edge) => edge.id !== previousEdge?.id);
+      edges.push({ id: crypto.randomUUID(), source_node_id: sourceNodeId, target_node_id: nodeId, label: previousEdge?.label ?? edgeLabel });
+      if (previousEdge) edges.push({ id: crypto.randomUUID(), source_node_id: nodeId, target_node_id: previousEdge.target_node_id, label: null });
+      const canvas = { nodes: [...workflow.canvas_definition.nodes, node], edges };
+      const { error } = await createClient().from("workflows").update({ canvas_definition: canvas }).eq("id", workflowId);
+      if (error) throw new Error(error.message);
+    }),
+    enrollContactInWorkflow: (workflowId, contactId, _simulatedReply) => runMutation(async () => {
+      const { error } = await createClient().from("workflow_enrollments").insert({ tenant_id: requireTenant(), workflow_id: workflowId, contact_id: contactId, status: "active", execution_logs: [{ node_id: "enrollment", node_label: "Inscripción manual", executed_at: new Date().toISOString(), outcome: "success", detail: "Contacto inscrito. La ejecución se procesará en el servidor." }] });
+      if (error) throw new Error(error.message);
+    }),
+    inviteMember: (email, role) => runMutation(async () => {
+      const response = await fetch("/api/v1/team/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: requireTenant(), email, role }) });
+      const result = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar la invitación.");
+    }),
+    updateMember: (memberId, patch) => runMutation(async () => {
+      const { error } = await createClient().from("tenant_members").update(patch).eq("id", memberId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    deleteMember: (memberId) => runMutation(async () => {
+      const { error } = await createClient().from("tenant_members").delete().eq("id", memberId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    createAiBot: (input) => runMutation(async () => {
+      const { error } = await createClient().from("ai_bots").insert({ ...input, tenant_id: requireTenant(), name: input.name.trim(), product_line: input.product_line.trim() });
+      if (error) throw new Error(error.message);
+    }),
+    toggleAiBot: (botId) => runMutation(async () => {
+      const bot = data.aiBots.find((item) => item.id === botId);
+      if (!bot) return;
+      const { error } = await createClient().from("ai_bots").update({ is_active: !bot.is_active }).eq("id", botId);
+      if (error) throw new Error(error.message);
+    }),
+    setIntegrationConnected,
+    addCustomField: (input) => runMutation(async () => {
+      const { error } = await createClient().from("custom_field_definitions").insert({ ...input, tenant_id: requireTenant(), options: input.options ?? [] });
+      if (error) throw new Error(error.message);
+    }),
+    deleteCustomField: (fieldId) => runMutation(async () => {
+      const { error } = await createClient().from("custom_field_definitions").delete().eq("id", fieldId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    addCustomValue: (valueKey, valueContent) => runMutation(async () => {
+      const { error } = await createClient().from("custom_values").insert({ tenant_id: requireTenant(), value_key: valueKey.trim(), value_content: valueContent.trim() });
+      if (error) throw new Error(error.message);
+    }),
+    deleteCustomValue: (valueId) => runMutation(async () => {
+      const { error } = await createClient().from("custom_values").delete().eq("id", valueId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+  }), [
+    activeMember, activeTenant, contactQuery, contactTotal, dashboardStats, data, dataError,
+    importContacts, isHydrated, isLoadingData, isMutating, login, logout, monthlyPerformance,
+    pipelineStages, pipelineSummary, refreshData, register, requireTenant, runMutation, runMutationAsync, session, setContactQuery,
+    setIntegrationConnected, switchTenant, userAccounts,
+  ]);
 
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;
 }

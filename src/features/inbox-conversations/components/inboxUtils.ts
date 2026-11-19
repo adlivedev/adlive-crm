@@ -3,30 +3,27 @@
  * Filtros, previsualizaciones y constantes de tipificación (Skill 4: reutilización).
  */
 
-import type { Contact, Conversation, ConversationWithDetails, WhatsAppTemplate } from "@/shared/types/database";
+import type { Contact, Conversation, ConversationWithDetails } from "@/shared/types/database";
 
 /** Regla de Meta Cloud API: sesión de atención de 24 h desde el último mensaje entrante. */
 export const META_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** Tipificaciones canónicas del Call Center de portabilidad. */
+/** Tipificaciones neutrales; cada workspace puede ampliarlas con campos personalizados. */
 export const TYPIFICATION_OPTIONS = [
   "Seguimiento",
   "Cliente cerrado",
   "Cliente perdido",
-  "Ya tiene Movistar",
   "No le interesa",
-  "Equivocado",
+  "Contacto equivocado",
+  "Sin respuesta",
 ] as const;
 
-/** Píldoras de tipificación del sidebar (incluye códigos operativos POR y Fecha). */
 export const TYPIFICATION_PILLS = [
   "Cliente cerrado",
   "Cliente perdido",
-  "Ya tiene Movistar",
   "No le interesa",
-  "Equivocado",
-  "POR",
-  "Fecha",
+  "Contacto equivocado",
+  "Sin respuesta",
 ] as const;
 
 /** Filtros de la primera fila del sidebar. */
@@ -117,33 +114,11 @@ export function matchesInboxFilters(
   return true;
 }
 
-/** Reemplaza las variables {{1}}, {{2}}… con datos del contacto (misma regla que la ficha 360°). */
-export function fillTemplateBody(template: WhatsAppTemplate, contact: Contact): string {
-  const firstName = contact.full_name.trim().split(/\s+/)[0] ?? contact.full_name;
-  return template.body_text
-    .replaceAll("{{1}}", firstName)
-    .replaceAll("{{2}}", "$38.000")
-    .replaceAll("{{3}}", "50GB + llamadas ilimitadas");
-}
+export { fillTemplateBody, isMetaWindowOpen } from "@/shared/lib/whatsapp";
 
-/** Respuestas rápidas predefinidas del equipo de portabilidad. */
+/** Respuestas rápidas neutrales, editables en una iteración posterior por workspace. */
 export const QUICK_REPLIES = [
-  "Para la portabilidad necesitamos tu cédula, el operador actual y el NIP de 4 dígitos. ¿Me los compartes? 💜",
-  "El plan de 50GB + llamadas ilimitadas queda en $38.000/mes con línea nueva incluida.",
-  "El NIP lo solicitas marcando *264 desde tu línea actual; llega por SMS en minutos.",
-  "La SIM nueva llega en 2–3 días hábiles al domicilio que nos indiques. 📦",
+  "Gracias por escribirnos. ¿En qué podemos ayudarte?",
+  "¿Podrías compartirnos más detalles para revisar tu solicitud?",
+  "Un asesor revisará la información y te responderá por este mismo chat.",
 ] as const;
-
-/** Mensajes que simula el botón de prueba de recepción en tiempo real. */
-export const SIMULATED_INBOUND_MESSAGES = [
-  "Sí, me interesa el plan de 50GB. ¿Cómo empezamos con la portabilidad?",
-  "Buenas, ¿sigue disponible la oferta de $38.000 con llamadas ilimitadas?",
-  "Claro, te envío la cédula y el NIP por aquí mismo.",
-  "Perfecto, ¿para cuándo me llegaría la SIM nueva?",
-] as const;
-
-/** ¿La ventana de 24 h de Meta sigue abierta para esta conversación? */
-export function isMetaWindowOpen(conversation: Conversation, now: Date): boolean {
-  if (!conversation.last_inbound_at) return false;
-  return now.getTime() - new Date(conversation.last_inbound_at).getTime() < META_WINDOW_MS;
-}

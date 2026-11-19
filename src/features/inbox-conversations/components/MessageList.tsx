@@ -6,75 +6,45 @@
  * Soporta texto, plantillas, imágenes y reproductor visual de notas de voz.
  */
 
-import { CheckCheck, FileText, Image as ImageIcon, Mic, Pause, Play } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, Check, CheckCheck, FileText, Image as ImageIcon, Mic } from "lucide-react";
+import { useEffect, useMemo, useRef } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
 import { formatTime } from "@/shared/lib/format";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Message } from "@/shared/types/database";
 
-/** Reproductor visual simulado de nota de voz (progreso animado con setInterval). */
-function VoiceNoteBubble({ message, isOutbound }: { message: Message; isOutbound: boolean }) {
-  const [playing, setPlaying] = useState(false);
-  const [progress, setProgress] = useState(0);
-
-  useEffect(() => {
-    if (!playing) return;
-    const interval = window.setInterval(() => {
-      setProgress((current) => {
-        if (current >= 100) {
-          window.clearInterval(interval);
-          setPlaying(false);
-          return 0;
-        }
-        return current + 4;
-      });
-    }, 120);
-    return () => window.clearInterval(interval);
-  }, [playing]);
-
-  const barColor = isOutbound ? "bg-white/40" : "bg-adlive-primary/20";
-
+function VoiceNoteBubble({ message }: { message: Message }) {
+  const mediaUrl = message.media_url?.startsWith("https://") ? message.media_url : null;
+  if (mediaUrl) return <audio controls preload="none" src={mediaUrl} className="h-10 w-64 max-w-full" aria-label="Nota de voz" />;
   return (
-    <span className="flex w-56 items-center gap-2.5">
-      <button
-        type="button"
-        onClick={() => setPlaying((current) => !current)}
-        aria-label={playing ? "Pausar nota de voz" : "Reproducir nota de voz"}
-        className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full ${
-          isOutbound ? "bg-white text-adlive-primary" : "bg-adlive-primary text-white"
-        }`}
-      >
-        {playing ? <Pause className="h-3.5 w-3.5" aria-hidden /> : <Play className="h-3.5 w-3.5" aria-hidden />}
-      </button>
-      <span className="flex flex-1 flex-col gap-1">
-        <span className={`flex h-1.5 w-full overflow-hidden rounded-full ${barColor}`} aria-hidden>
-          <span className="h-full rounded-full bg-current transition-[width] duration-150" style={{ width: `${progress}%` }} />
-        </span>
-        <span className="text-[11px] opacity-80">{message.body ?? "Nota de voz"}</span>
-      </span>
+    <span className="inline-flex items-center gap-2">
       <Mic className="h-4 w-4 shrink-0 opacity-70" aria-hidden />
+      <span>{message.body ?? "Nota de voz"}<span className="block text-[11px] opacity-70">Audio no disponible.</span></span>
     </span>
   );
 }
 
-/** Pieza multimedia (imagen simulada / documento) con caption. */
 function MediaBubble({ message }: { message: Message }) {
-  if (message.msg_type === "image" || message.msg_type === "video") {
-    return (
-      <span className="flex w-52 flex-col gap-1.5">
-        <span className="flex h-36 items-center justify-center rounded-xl bg-black/15">
-          <ImageIcon className="h-8 w-8 opacity-70" aria-hidden />
-        </span>
-        {message.body ? <span className="text-[11px] opacity-80">{message.body}</span> : null}
-      </span>
-    );
-  }
+  const mediaUrl = message.media_url?.startsWith("https://") ? message.media_url : null;
+  const label = message.msg_type === "document" ? "Documento" : message.msg_type === "video" ? "Video" : "Imagen";
   return (
-    <span className="inline-flex items-center gap-2">
-      <FileText className="h-4 w-4 shrink-0" aria-hidden />
-      {message.body ?? "Documento"}
+    <span className="flex max-w-64 flex-col gap-1.5">
+      <span className="inline-flex items-center gap-2">
+        {message.msg_type === "document" ? <FileText className="h-4 w-4" aria-hidden /> : <ImageIcon className="h-4 w-4" aria-hidden />}
+        {mediaUrl ? <a href={mediaUrl} target="_blank" rel="noreferrer" className="underline">Abrir {label.toLowerCase()}</a> : `${label} no disponible`}
+      </span>
+      {message.body ? <span className="text-[11px] opacity-80">{message.body}</span> : null}
+    </span>
+  );
+}
+
+function DeliveryStatus({ message }: { message: Message }) {
+  const labels = { queued: "En cola", sent: "Enviado", delivered: "Entregado", read: "Leído", failed: "Fallido" } as const;
+  return (
+    <span className="inline-flex items-center gap-1" title={message.error_reason ?? labels[message.status]}>
+      {message.status === "failed" ? <AlertCircle className="h-3.5 w-3.5 text-adlive-danger" aria-hidden /> : message.status === "sent" || message.status === "queued" ? <Check className="h-3.5 w-3.5" aria-hidden /> : <CheckCheck className={`h-3.5 w-3.5 ${message.status === "read" ? "text-adlive-cyan" : ""}`} aria-hidden />}
+      <span>{labels[message.status]}</span>
     </span>
   );
 }
@@ -108,7 +78,7 @@ export function MessageList({ conversationId }: { conversationId: string }) {
       {conversationMessages.length === 0 ? (
         <p className="my-auto text-center text-sm text-adlive-text-muted">
           Aún no hay mensajes en esta conversación.
-          <span className="mt-1 block text-xs">Usa «Simular mensaje del cliente» para recibir uno en tiempo real.</span>
+          <span className="mt-1 block text-xs">Los mensajes verificados de WhatsApp aparecerán aquí en tiempo real.</span>
         </p>
       ) : (
         conversationMessages.map((message) => {
@@ -128,7 +98,7 @@ export function MessageList({ conversationId }: { conversationId: string }) {
                 }`}
               >
                 {message.msg_type === "audio" ? (
-                  <VoiceNoteBubble message={message} isOutbound={isOutbound} />
+                  <VoiceNoteBubble message={message} />
                 ) : message.msg_type === "image" || message.msg_type === "video" || message.msg_type === "document" ? (
                   <MediaBubble message={message} />
                 ) : (
@@ -137,9 +107,7 @@ export function MessageList({ conversationId }: { conversationId: string }) {
               </div>
               <span className="flex items-center gap-1 text-[11px] text-adlive-text-muted">
                 {formatTime(message.created_at)}
-                {isOutbound ? (
-                  <CheckCheck className="h-3.5 w-3.5 text-adlive-cyan" aria-label="Mensaje leído (doble check)" />
-                ) : null}
+                {isOutbound ? <DeliveryStatus message={message} /> : null}
               </span>
             </div>
           );

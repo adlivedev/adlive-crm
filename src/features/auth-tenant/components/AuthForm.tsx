@@ -1,177 +1,137 @@
 "use client";
 
-/**
- * M1 — Formulario unificado de autenticación multi-tenant.
- * Pestañas conmutables: Iniciar sesión / Crear cuenta (nueva agencia aislada).
- */
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, type FormEvent } from "react";
 
-import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
-
-import { AdliveLogo } from "@/shared/components/AdliveLogo";
+import { BrandLogo } from "@/shared/components/BrandLogo";
+import { TenantThemeProvider } from "@/shared/components/TenantThemeProvider";
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
+import { createClient } from "@/shared/lib/supabase/client";
 import { useCrm } from "@/shared/services/crmStore";
+import type { Tenant } from "@/shared/types/database";
 
 export type AuthTab = "login" | "register";
+export interface AuthFormProps { initialTab: AuthTab }
+type WorkspaceBrand = Pick<Tenant, "name" | "slug" | "branding" | "status">;
 
-export interface AuthFormProps {
-  initialTab: AuthTab;
-}
-
-export function AuthForm({ initialTab }: AuthFormProps) {
+function AuthFormContent({ initialTab }: AuthFormProps) {
   const router = useRouter();
-  const { isHydrated, session, login, register } = useCrm();
-
-  const [tab, setTab] = useState<AuthTab>(initialTab);
+  const searchParams = useSearchParams();
+  const { isHydrated, session, login, register, dataError } = useCrm();
+  const workspaceSlug = searchParams.get("workspace")?.trim().toLowerCase() ?? "";
+  const publicSignup = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP === "true";
+  const [workspaceTenant, setWorkspaceTenant] = useState<WorkspaceBrand | null>(null);
+  const [tab, setTab] = useState<AuthTab>(publicSignup ? initialTab : "login");
   const [agencyName, setAgencyName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isRegister = tab === "register" && publicSignup;
 
-  /* Si ya hay sesión mock activa, entrar directo al CRM. */
   useEffect(() => {
     if (isHydrated && session) router.replace("/dashboard");
   }, [isHydrated, session, router]);
 
-  const isRegister = tab === "register";
-
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setErrorMessage(null);
-    setIsSubmitting(true);
-
-    const ok = isRegister
-      ? register(agencyName, email, password)
-      : login(email, password);
-
-    if (ok) {
-      router.push("/dashboard");
+  useEffect(() => {
+    if (!workspaceSlug) {
+      setWorkspaceTenant(null);
       return;
     }
+    const controller = new AbortController();
+    void fetch(`/api/v1/public/workspace?slug=${encodeURIComponent(workspaceSlug)}`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        return await response.json() as { workspace: WorkspaceBrand };
+      })
+      .then((result) => setWorkspaceTenant(result?.workspace ?? null))
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setWorkspaceTenant(null);
+      });
+    return () => controller.abort();
+  }, [workspaceSlug]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage(null);
+    setIsError(false);
+    setIsSubmitting(true);
+    const result = isRegister ? await register(agencyName, email, password) : await login(email, password);
     setIsSubmitting(false);
-    setErrorMessage(
-      isRegister
-        ? "Revisa el nombre de la agencia y el correo electrónico."
-        : "Ingresa un correo electrónico válido para continuar.",
-    );
+    if (!result.ok) {
+      setIsError(true);
+      setMessage(result.error ?? "No se pudo completar el acceso.");
+      return;
+    }
+    if (isRegister) {
+      setTab("login");
+      setPassword("");
+      setMessage(result.requiresEmailConfirmation
+        ? "Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión."
+        : "Cuenta creada. Ya puedes iniciar sesión.");
+      return;
+    }
+    router.push("/dashboard");
+  }
+
+  async function handleResetPassword() {
+    if (!email.trim()) {
+      setIsError(true);
+      setMessage("Escribe tu correo para enviarte el enlace de recuperación.");
+      return;
+    }
+    setIsSubmitting(true);
+    setIsError(false);
+    const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
+      redirectTo: `${window.location.origin}/login`,
+    });
+    setIsSubmitting(false);
+    setIsError(Boolean(error));
+    setMessage(error ? "No se pudo enviar el enlace de recuperación." : "Si el correo está registrado, recibirás un enlace para restablecer la contraseña.");
   }
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-adlive-canvas-bg px-4 py-12">
-      <AdliveLogo className="mb-8" />
-
-      <div className="w-full max-w-md rounded-2xl border border-adlive-border bg-adlive-card-bg p-8 shadow-card">
-        {/* Pestañas conmutables */}
-        <div role="tablist" aria-label="Autenticación" className="mb-8 grid grid-cols-2 rounded-xl bg-adlive-canvas-bg p-1">
-          {(["login", "register"] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={tab === value}
-              onClick={() => {
-                setTab(value);
-                setErrorMessage(null);
-              }}
-              className={`h-10 cursor-pointer rounded-lg text-sm font-semibold transition-all duration-150 ${
-                tab === value
-                  ? "bg-white text-adlive-text-main shadow-card"
-                  : "text-adlive-text-muted hover:text-adlive-text-main"
-              }`}
-            >
-              {value === "login" ? "Iniciar sesión" : "Crear cuenta"}
-            </button>
-          ))}
-        </div>
-
-        <form onSubmit={handleSubmit} noValidate={false} className="flex flex-col gap-5">
-          {isRegister ? (
-            <Input
-              label="Nombre de la agencia"
-              placeholder="Agencia Aurora"
-              value={agencyName}
-              onChange={(e) => setAgencyName(e.target.value)}
-              autoComplete="organization"
-              required
-              minLength={2}
-            />
-          ) : null}
-
-          <Input
-            label="Correo electrónico"
-            type="email"
-            inputMode="email"
-            placeholder="tu@agencia.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <label htmlFor="auth-password" className="text-sm font-medium text-adlive-text-main">
-                Contraseña
-              </label>
-              {!isRegister ? (
-                <button
-                  type="button"
-                  onClick={() => setErrorMessage("Te enviaremos un enlace de restablecimiento cuando conectemos Supabase Auth (Etapa B).")}
-                  className="cursor-pointer text-xs font-medium text-adlive-cyan transition-colors duration-150 hover:text-cyan-700 hover:underline"
-                >
-                  ¿Olvidaste tu contraseña?
+    <TenantThemeProvider tenant={workspaceTenant} className="min-h-screen bg-adlive-canvas-bg">
+      <main className="flex min-h-screen flex-col items-center justify-center px-4 py-8 sm:py-12">
+        <BrandLogo tenant={workspaceTenant} className="mb-8" />
+        <div className="w-full max-w-md rounded-2xl border border-adlive-border bg-adlive-card-bg p-5 shadow-card sm:p-8">
+          {publicSignup ? (
+            <div role="tablist" aria-label="Autenticación" className="mb-8 grid grid-cols-2 rounded-xl bg-adlive-canvas-bg p-1">
+              {(["login", "register"] as const).map((value) => (
+                <button key={value} type="button" role="tab" aria-selected={tab === value}
+                  onClick={() => { setTab(value); setMessage(null); setIsError(false); }}
+                  className={`h-10 cursor-pointer rounded-lg text-sm font-semibold transition-all duration-150 ${tab === value ? "bg-white text-adlive-text-main shadow-card" : "text-adlive-text-muted hover:text-adlive-text-main"}`}>
+                  {value === "login" ? "Iniciar sesión" : "Crear cuenta"}
                 </button>
-              ) : null}
+              ))}
             </div>
-            <input
-              id="auth-password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={isRegister ? "new-password" : "current-password"}
-              required
-              minLength={6}
-              className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main transition-colors duration-150 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
-            />
-          </div>
+          ) : <h1 className="mb-6 text-xl font-bold text-adlive-text-main">Iniciar sesión</h1>}
 
-          {errorMessage ? (
-            <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-adlive-danger">
-              {errorMessage}
-            </p>
-          ) : null}
-
-          <Button type="submit" variant="primary" isLoading={isSubmitting} className="w-full">
-            {isRegister ? "Crear cuenta gratis" : "Ingresar"}
-          </Button>
-        </form>
-
-        <div className="my-6 flex items-center gap-3" aria-hidden>
-          <span className="h-px flex-1 bg-adlive-border" />
-          <span className="text-xs text-adlive-text-muted">o continúa con</span>
-          <span className="h-px flex-1 bg-adlive-border" />
+          <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+            {isRegister ? <Input label="Nombre de la empresa" placeholder="Tu empresa" value={agencyName} onChange={(event) => setAgencyName(event.target.value)} autoComplete="organization" required minLength={2} /> : null}
+            <Input label="Correo electrónico" type="email" inputMode="email" placeholder="tu@empresa.com" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center justify-between gap-3">
+                <label htmlFor="auth-password" className="text-sm font-medium text-adlive-text-main">Contraseña</label>
+                {!isRegister ? <button type="button" disabled={isSubmitting} onClick={() => void handleResetPassword()} className="cursor-pointer text-right text-xs font-medium text-adlive-primary hover:underline disabled:opacity-50">¿Olvidaste tu contraseña?</button> : null}
+              </div>
+              <input id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isRegister ? "new-password" : "current-password"} required minLength={isRegister ? 12 : 6}
+                className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20" />
+              {isRegister ? <p className="text-xs text-adlive-text-muted">Usa entre 12 y 72 caracteres.</p> : null}
+            </div>
+            {message || dataError ? <p role={isError || dataError ? "alert" : "status"} className={`rounded-xl border px-4 py-2.5 text-sm ${isError || dataError ? "border-red-200 bg-red-50 text-adlive-danger" : "border-emerald-200 bg-emerald-50 text-adlive-success"}`}>{message ?? dataError}</p> : null}
+            <Button type="submit" variant="primary" isLoading={isSubmitting} className="w-full">{isRegister ? "Crear cuenta" : "Ingresar"}</Button>
+          </form>
         </div>
-
-        <Button
-          variant="secondary"
-          className="w-full"
-          onClick={() => setErrorMessage("El inicio de sesión con Google se habilita al conectar Supabase Auth (Etapa B).")}
-        >
-          <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
-            <path fill="#4285F4" d="M23.5 12.3c0-.9-.1-1.5-.3-2.2H12v4.1h6.5c-.1 1.1-.8 2.7-2.4 3.8l3.7 2.9c2.3-2.1 3.7-5.2 3.7-8.6Z" />
-            <path fill="#34A853" d="M12 24c3.2 0 5.9-1.1 7.9-2.9l-3.7-2.9c-1 .7-2.4 1.2-4.2 1.2-3.1 0-5.8-2.1-6.8-5l-3.9 3C3.3 21.3 7.3 24 12 24Z" />
-            <path fill="#FBBC05" d="M5.2 14.4c-.3-.7-.4-1.5-.4-2.4s.2-1.7.4-2.4l-3.9-3C.5 8.2 0 10 0 12s.5 3.8 1.3 5.4l3.9-3Z" />
-            <path fill="#EA4335" d="M12 4.7c1.8 0 3 .8 3.7 1.4l3.3-3.2C17.9 1.1 15.2 0 12 0 7.3 0 3.3 2.7 1.3 6.6l3.9 3c1-2.9 3.7-4.9 6.8-4.9Z" />
-          </svg>
-          Continuar con Google
-        </Button>
-      </div>
-
-      <p className="mt-6 max-w-md text-center text-xs leading-5 text-adlive-text-muted">
-        Cada cuenta ve únicamente sus propios contactos, oportunidades y conversaciones.
-      </p>
-    </main>
+        <p className="mt-6 max-w-md text-center text-xs leading-5 text-adlive-text-muted">Cada empresa ve únicamente sus propios contactos, oportunidades y conversaciones.</p>
+      </main>
+    </TenantThemeProvider>
   );
+}
+
+export function AuthForm(props: AuthFormProps) {
+  return <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-adlive-canvas-bg text-sm text-adlive-text-muted">Cargando acceso…</main>}><AuthFormContent {...props} /></Suspense>;
 }

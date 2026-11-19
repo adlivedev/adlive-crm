@@ -163,7 +163,7 @@ export const mockContacts: Contact[] = [
   /* ================= Cuenta (tenant dueño) ================= */
   {
     id: "c-c-001", tenant_id: "t-cuenta", assigned_member_id: "m-cuenta-owner",
-    full_name: "JUAN DAVID HOYOS RAMIREZ", phone_e164: "573104567890", email: "juan.hoyos@adlive.co", company_name: "ADLIVE SAS",
+    full_name: "JUAN DAVID HOYOS RAMIREZ", phone_e164: "573104567890", email: "juan.hoyos@example.com", company_name: "CIERTO",
     lead_source: "Referido", tags: ["equipo"], custom_fields: {},
     is_closed_client: true, is_starred: false, typification: "Cliente cerrado", opt_out_marketing: false,
     ...UTM_META, utm_source: "directo", utm_medium: "none", utm_campaign: null, utm_content: null, utm_term: null, fbclid: null,

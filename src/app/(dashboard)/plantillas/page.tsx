@@ -2,7 +2,7 @@
 
 /**
  * M7 — Plantillas de WhatsApp Business (`/plantillas`).
- * Tabla de plantillas de la WABA conectada (sincronización simulada con
+ * Tabla de plantillas de la WABA conectada (sincronización real con
  * Meta Cloud API) y creación con vista previa en vivo estilo WhatsApp.
  */
 

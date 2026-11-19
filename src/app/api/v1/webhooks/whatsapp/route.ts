@@ -1,26 +1,13 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { after, NextResponse } from "next/server";
 
-import { NextResponse } from "next/server";
-
+import { isValidMetaSignature, safeEqualSecret } from "@/shared/lib/metaWebhookSecurity";
+import { processAiBotReply } from "@/shared/services/aiBotService";
 import { ingestWhatsAppPayload, whatsappPayloadSchema } from "@/shared/services/whatsappWebhookService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_BODY_BYTES = 1_000_000;
-
-function safeEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
-}
-
-function validMetaSignature(rawBody: string, signature: string | null): boolean {
-  const appSecret = process.env.META_APP_SECRET;
-  if (!appSecret || !signature?.startsWith("sha256=")) return false;
-  const expected = `sha256=${createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex")}`;
-  return safeEqual(signature, expected);
-}
 
 export async function GET(request: Request) {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
@@ -30,7 +17,7 @@ export async function GET(request: Request) {
   const mode = params.get("hub.mode");
   const token = params.get("hub.verify_token");
   const challenge = params.get("hub.challenge");
-  if (mode !== "subscribe" || !token || !challenge || !safeEqual(token, verifyToken)) {
+  if (mode !== "subscribe" || !token || !challenge || !safeEqualSecret(token, verifyToken)) {
     return NextResponse.json({ error: "Verificación no válida." }, { status: 403 });
   }
   return new Response(challenge, {
@@ -51,7 +38,7 @@ export async function POST(request: Request) {
   if (Buffer.byteLength(rawBody, "utf8") > MAX_BODY_BYTES) {
     return NextResponse.json({ error: "Payload demasiado grande." }, { status: 413 });
   }
-  if (!validMetaSignature(rawBody, request.headers.get("x-hub-signature-256"))) {
+  if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"), process.env.META_APP_SECRET)) {
     return NextResponse.json({ error: "Firma no válida." }, { status: 401 });
   }
 
@@ -68,7 +55,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await ingestWhatsAppPayload(parsed.data);
+    const { insertedWaMessageIds, ...result } = await ingestWhatsAppPayload(parsed.data);
+    after(async () => {
+      for (const waMessageId of insertedWaMessageIds) {
+        try {
+          await processAiBotReply(waMessageId);
+        } catch (error) {
+          console.error("WhatsApp AI reply failed", error instanceof Error ? error.message : "unknown error");
+        }
+      }
+    });
     return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     console.error("WhatsApp webhook ingestion failed", error instanceof Error ? error.message : "unknown error");

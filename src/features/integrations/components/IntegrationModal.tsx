@@ -13,24 +13,26 @@ import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
 import type { IntegrationProvider } from "@/shared/types/database";
 
-import { maskSecret, type IntegrationSpec } from "./integrationsData";
+import { type IntegrationSpec } from "./integrationsData";
 
 export interface IntegrationModalProps {
   open: boolean;
   spec: IntegrationSpec | null;
   onClose: () => void;
-  onSave: (provider: IntegrationProvider, values: Record<string, string>) => void;
+  onSave: (provider: IntegrationProvider, values: Record<string, string>) => Promise<void>;
 }
 
 export function IntegrationModal({ open, spec, onClose, onSave }: IntegrationModalProps) {
   const [values, setValues] = useState<Record<string, string>>({});
-  const [savedMasks, setSavedMasks] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!spec) return null;
 
   const handleClose = () => {
+    if (isSaving) return;
     setValues({});
-    setSavedMasks({});
+    setError(null);
     onClose();
   };
 
@@ -40,16 +42,20 @@ export function IntegrationModal({ open, spec, onClose, onSave }: IntegrationMod
 
   const isComplete = spec.fields.every((field) => (values[field.key] ?? "").trim().length > 0);
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!isComplete) return;
-    const masks: Record<string, string> = {};
-    for (const field of spec.fields) {
-      if (field.secret) masks[field.key] = maskSecret(values[field.key] ?? "");
+    if (!isComplete || isSaving) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      await onSave(spec.provider, values);
+      setValues({});
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo guardar la integración.");
+    } finally {
+      setIsSaving(false);
     }
-    setSavedMasks(masks);
-    onSave(spec.provider, values);
-    handleClose();
   };
 
   return (
@@ -66,18 +72,14 @@ export function IntegrationModal({ open, spec, onClose, onSave }: IntegrationMod
               autoComplete="off"
               hint={field.hint}
             />
-            {field.secret && savedMasks[field.key] ? (
-              <p className="text-xs font-medium text-adlive-success">
-                Guardada: <span className="font-mono">{savedMasks[field.key]}</span>
-              </p>
-            ) : null}
           </div>
         ))}
+        {error ? <p role="alert" className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-adlive-danger">{error}</p> : null}
         <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="secondary" onClick={handleClose}>
+          <Button type="button" variant="secondary" onClick={handleClose} disabled={isSaving}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={!isComplete}>
+          <Button type="submit" disabled={!isComplete || isSaving} isLoading={isSaving}>
             Guardar y conectar
           </Button>
         </div>

@@ -66,7 +66,7 @@ export function KanbanColumn({
       aria-label={`Etapa ${stage.name}, ${opportunities.length} oportunidades por ${formatCOP(columnTotal)}`}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
-      className={`flex w-[280px] shrink-0 flex-col rounded-2xl border bg-adlive-canvas-bg/70 transition-colors duration-150 xl:w-[300px] ${
+      className={`flex w-[280px] min-w-[280px] shrink-0 snap-start flex-col rounded-2xl border bg-adlive-canvas-bg/70 transition-colors duration-150 xl:w-[300px] ${
         isDropTarget ? "border-adlive-primary border-dashed bg-adlive-primary-light/60" : "border-adlive-border"
       }`}
     >

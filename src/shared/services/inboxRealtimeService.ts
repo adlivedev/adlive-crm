@@ -36,7 +36,8 @@ const conversationSchema = z.object({
 
 const messageSchema = z.object({
   id: uuidSchema, tenant_id: uuidSchema, conversation_id: uuidSchema, sender_member_id: nullableUuid,
-  wa_message_id: z.string().nullable(), direction: z.enum(["inbound", "outbound"]),
+  wa_message_id: z.string().nullable(), in_reply_to_message_id: nullableUuid.optional(),
+  direction: z.enum(["inbound", "outbound"]),
   msg_type: z.enum(["text", "template", "image", "audio", "video", "document", "system"]),
   body: z.string().nullable(), media_url: z.string().nullable(), media_mime_type: z.string().nullable(),
   template_name: z.string().nullable(), status: z.enum(["queued", "sent", "delivered", "read", "failed"]),
@@ -63,7 +64,7 @@ export function subscribeToInboxRealtime(tenantId: string, handlers: InboxRealti
       const parsed = conversationSchema.safeParse(payload.new);
       if (parsed.success) handlers.onConversation(parsed.data);
     })
-    .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter }, (payload: { new: unknown }) => {
+    .on("postgres_changes", { event: "*", schema: "public", table: "messages", filter }, (payload: { new: unknown }) => {
       const parsed = messageSchema.safeParse(payload.new);
       if (parsed.success) handlers.onMessage(parsed.data);
     });

@@ -3,7 +3,7 @@
 /**
  * M8 — Integraciones (`/integraciones`).
  * Banner de configuración a nivel de plataforma y grid de 6 tarjetas
- * interactivas conectadas a la bóveda del store (mock de credenciales cifradas).
+ * interactivas conectadas a la bóveda cifrada del servidor.
  */
 
 import { Info } from "lucide-react";
@@ -19,25 +19,27 @@ import { INTEGRATION_SPECS, type IntegrationSpec } from "./integrationsData";
 export function IntegrationsView() {
   const { integrations, setIntegrationConnected } = useCrm();
   const [modalSpec, setModalSpec] = useState<IntegrationSpec | null>(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
   const findIntegration = (provider: IntegrationProvider) =>
     integrations.find((integration) => integration.provider === provider);
 
-  const handleSave = (provider: IntegrationProvider, values: Record<string, string>) => {
-    setIntegrationConnected(provider, true);
-    const spec = INTEGRATION_SPECS.find((s) => s.provider === provider);
+  const handleSave = async (provider: IntegrationProvider, values: Record<string, string>) => {
+    await setIntegrationConnected(provider, true, values);
+    const spec = INTEGRATION_SPECS.find((item) => item.provider === provider);
     setAnnouncement(
       `${spec?.name ?? "Integración"} conectada correctamente. Las credenciales quedaron cifradas en el servidor.`,
     );
-    void values; // Los valores viajan a la bóveda del servidor; aquí nunca se persisten.
   };
 
-  const handleDisconnect = (provider: IntegrationProvider) => {
-    setIntegrationConnected(provider, false);
-    const spec = INTEGRATION_SPECS.find((s) => s.provider === provider);
-    setAnnouncement(`${spec?.name ?? "Integración"} desconectada.`);
+  const handleDisconnect = async (provider: IntegrationProvider) => {
+    try {
+      await setIntegrationConnected(provider, false);
+      const spec = INTEGRATION_SPECS.find((item) => item.provider === provider);
+      setAnnouncement(`${spec?.name ?? "Integración"} desconectada.`);
+    } catch (error) {
+      setAnnouncement(error instanceof Error ? error.message : "No se pudo desconectar la integración.");
+    }
   };
 
   return (
@@ -70,15 +72,8 @@ export function IntegrationsView() {
             <IntegrationCard
               spec={spec}
               integration={findIntegration(spec.provider)}
-              voiceEnabled={voiceEnabled}
               onConfigure={() => setModalSpec(spec)}
-              onToggleVoice={() => {
-                setVoiceEnabled((prev) => {
-                  setAnnouncement(prev ? "Llamadas de voz desactivadas para WhatsApp." : "Llamadas de voz activadas para WhatsApp.");
-                  return !prev;
-                });
-              }}
-              onDisconnect={() => handleDisconnect(spec.provider)}
+              onDisconnect={() => void handleDisconnect(spec.provider)}
             />
           </div>
         ))}

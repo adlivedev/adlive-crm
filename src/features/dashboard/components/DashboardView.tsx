@@ -25,7 +25,7 @@ export function DashboardView() {
       </p>
 
       {/* 4 Tarjetas KPI */}
-      <section aria-label="Indicadores clave" className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Indicadores clave" className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6 xl:grid-cols-4">
         <KpiCard
           label="Total de contactos"
           value={formatNumber(dashboardStats.totalContacts)}

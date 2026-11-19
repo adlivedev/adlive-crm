@@ -88,15 +88,19 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
       </header>
 
       {/* 3 columnas */}
-      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[300px_minmax(0,1fr)_380px]">
-        <div className="flex flex-col gap-4">
+      <div className="grid min-w-0 grid-cols-1 items-start gap-4 sm:gap-6 lg:grid-cols-12">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-4 xl:col-span-3">
           <ContactDataPanel contact={contact} />
           <AttributionPanel contact={contact} />
           <CustomFieldsPanel contact={contact} />
           <OpportunitiesPanel contact={contact} />
         </div>
-        <ConversationPanel contact={contact} conversation={conversation} />
-        <CommercialTabs contact={contact} />
+        <div className="min-w-0 lg:col-span-8 xl:col-span-5">
+          <ConversationPanel contact={contact} conversation={conversation} />
+        </div>
+        <div className="min-w-0 lg:col-span-12 xl:col-span-4">
+          <CommercialTabs contact={contact} />
+        </div>
       </div>
     </div>
   );

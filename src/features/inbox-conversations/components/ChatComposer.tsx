@@ -2,16 +2,16 @@
 
 /**
  * M5 — Barra de envío inferior del chat.
- * - Plantillas de WhatsApp, adjuntos simulados (imagen/audio) y respuestas rápidas.
+ * - Plantillas de WhatsApp, texto y respuestas rápidas.
  * - Envío con Enter respetando el VALIDADOR ESTRICTO de la ventana de 24 h de Meta:
  *   ventana cerrada → input bloqueado y solo «Enviar plantilla» habilitado.
  */
 
-import { Clock3, FileText, Image as ImageIcon, Mic, SendHorizonal, Zap } from "lucide-react";
+import { Clock3, FileText, SendHorizonal, Zap } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
+import { META_WINDOW_MS } from "@/shared/lib/whatsapp";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact, Conversation, WhatsAppTemplate } from "@/shared/types/database";
 
@@ -20,9 +20,9 @@ import { QUICK_REPLIES, fillTemplateBody, isMetaWindowOpen } from "./inboxUtils"
 const CLOCK_TICK_MS = 30_000;
 
 export function ChatComposer({ conversation, contact }: { conversation: Conversation; contact: Contact }) {
-  const { messages, templates, sendMessage } = useCrm();
+  const { templates, sendMessage, isMutating } = useCrm();
   const [draft, setDraft] = useState("");
-  const [picker, setPicker] = useState<"template" | "quick" | "attach" | null>(null);
+  const [picker, setPicker] = useState<"template" | "quick" | null>(null);
   const [nowTick, setNowTick] = useState<Date>(() => new Date());
 
   /* Reloj vivo: la ventana de 24 h se re-evalúa sola. */
@@ -35,42 +35,39 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
 
   const windowOpen = isMetaWindowOpen(conversation, nowTick);
   const lastInboundAt = conversation.last_inbound_at;
-  const remainingMs = lastInboundAt ? Math.max(0, 24 * 60 * 60 * 1000 - (nowTick.getTime() - new Date(lastInboundAt).getTime())) : 0;
+  const remainingMs = windowOpen && lastInboundAt
+    ? Math.max(0, META_WINDOW_MS - (nowTick.getTime() - new Date(lastInboundAt).getTime()))
+    : 0;
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const body = draft.trim();
-    if (!body || !windowOpen) return;
-    sendMessage(conversation.id, { body });
-    setDraft("");
-    setPicker(null);
+    if (!body || !windowOpen || isMutating) return;
+    try {
+      await sendMessage(conversation.id, { body });
+      setDraft("");
+      setPicker(null);
+    } catch { /* El store muestra el error real del servidor. */ }
   };
 
-  const handleSendTemplate = (template: WhatsAppTemplate) => {
-    sendMessage(conversation.id, {
-      body: fillTemplateBody(template, contact),
-      msg_type: "template",
-      template_name: template.name,
-    });
-    setPicker(null);
+  const handleSendTemplate = async (template: WhatsAppTemplate) => {
+    if (isMutating) return;
+    try {
+      await sendMessage(conversation.id, {
+        body: fillTemplateBody(template, contact),
+        msg_type: "template",
+        template_name: template.name,
+      });
+      setPicker(null);
+    } catch { /* El store muestra el error real del servidor. */ }
   };
 
-  const handleAttach = (msgType: "image" | "audio") => {
-    sendMessage(conversation.id, {
-      body: msgType === "image" ? "Imagen adjunta (simulada)" : "Nota de voz (0:12) — simulada",
-      msg_type: msgType,
-    });
-    setPicker(null);
+  const handleQuickReply = async (reply: string) => {
+    if (!windowOpen || isMutating) return;
+    try {
+      await sendMessage(conversation.id, { body: reply });
+      setPicker(null);
+    } catch { /* El store muestra el error real del servidor. */ }
   };
-
-  const handleQuickReply = (reply: string) => {
-    if (!windowOpen) return;
-    sendMessage(conversation.id, { body: reply });
-    setPicker(null);
-  };
-
-  const hasMedia = messages.some(
-    (message) => message.conversation_id === conversation.id && ["image", "audio", "video", "document"].includes(message.msg_type),
-  );
 
   return (
     <div className="border-t border-adlive-border px-4 py-3">
@@ -90,7 +87,7 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
       ) : (
         <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-adlive-text-muted" role="status">
           <Clock3 className="h-3.5 w-3.5" aria-hidden />
-          Aún no hay mensajes del cliente: el primer envío libre requiere abrir la ventana (simula un mensaje entrante).
+          Aún no hay mensajes del cliente: usa una plantilla aprobada para iniciar la conversación.
         </p>
       )}
 
@@ -117,21 +114,6 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
                   <li className="px-1 text-sm text-adlive-text-muted">No hay plantillas aprobadas en esta cuenta.</li>
                 ) : null}
               </ul>
-            </>
-          ) : picker === "attach" ? (
-            <>
-              <PickerTitle>Adjuntar (simulado)</PickerTitle>
-              <div className="mt-1.5 flex gap-2">
-                <Button variant="secondary" size="sm" onClick={() => handleAttach("image")}>
-                  <ImageIcon className="h-4 w-4" aria-hidden />
-                  Imagen
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => handleAttach("audio")}>
-                  <Mic className="h-4 w-4" aria-hidden />
-                  Nota de voz
-                </Button>
-                {hasMedia ? <Badge tone="neutral" className="self-center">Esta conversación ya tiene adjuntos</Badge> : null}
-              </div>
             </>
           ) : (
             <>
@@ -166,9 +148,6 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
       <div className="flex items-center gap-1.5">
         <ComposerToolButton label="Insertar plantilla de WhatsApp" active={picker === "template"} onClick={() => setPicker(picker === "template" ? null : "template")}>
           <FileText className="h-4 w-4" aria-hidden />
-        </ComposerToolButton>
-        <ComposerToolButton label="Adjuntar imagen o audio" active={picker === "attach"} onClick={() => setPicker(picker === "attach" ? null : "attach")}>
-          <ImageIcon className="h-4 w-4" aria-hidden />
         </ComposerToolButton>
         <ComposerToolButton label="Respuestas rápidas" active={picker === "quick"} onClick={() => setPicker(picker === "quick" ? null : "quick")}>
           <Zap className="h-4 w-4" aria-hidden />

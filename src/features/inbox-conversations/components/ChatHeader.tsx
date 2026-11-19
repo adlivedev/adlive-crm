@@ -6,7 +6,7 @@
  * botón de prueba de recepción y eliminación en dos pasos.
  */
 
-import { MousePointerClick, Star, Trash2, Undo2 } from "lucide-react";
+import { Star, Trash2, Undo2 } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
@@ -20,11 +20,10 @@ interface ChatHeaderProps {
   thread: ConversationWithDetails;
   contact: Contact;
   members: TenantMember[];
-  onSimulateInbound: () => void;
 }
 
-export function ChatHeader({ thread, contact, members, onSimulateInbound }: ChatHeaderProps) {
-  const { toggleContactStar, setContactTypification, assignConversation, deleteConversation } = useCrm();
+export function ChatHeader({ thread, contact, members }: ChatHeaderProps) {
+  const { toggleContactStar, setContactTypification, setConversationHandler, assignConversation, deleteConversation, aiBots } = useCrm();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isStarred = contact.is_starred;
@@ -93,6 +92,18 @@ export function ChatHeader({ thread, contact, members, onSimulateInbound }: Chat
           ))}
         </select>
 
+        <label htmlFor="chat-handler" className="sr-only">Modo de atención</label>
+        <select
+          id="chat-handler"
+          value={thread.handler_mode}
+          onChange={(event) => setConversationHandler(thread.id, event.target.value as "bot" | "human")}
+          className="h-8 cursor-pointer rounded-lg border border-adlive-border bg-white px-2 text-xs font-medium text-adlive-text-main focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
+          title={aiBots.some((bot) => bot.is_active && bot.provider !== "integrated") ? "Atención humana o automática" : "Crea un bot con proveedor configurado para habilitar el modo Bot"}
+        >
+          <option value="human">Humano</option>
+          <option value="bot" disabled={!aiBots.some((bot) => bot.is_active && bot.provider !== "integrated")}>Bot</option>
+        </select>
+
         <label htmlFor="chat-assignee" className="sr-only">
           Reasignar agente
         </label>
@@ -109,15 +120,6 @@ export function ChatHeader({ thread, contact, members, onSimulateInbound }: Chat
             </option>
           ))}
         </select>
-
-        <button
-          type="button"
-          onClick={onSimulateInbound}
-          className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg bg-adlive-cyan-light px-2.5 text-xs font-semibold text-cyan-800 transition-colors hover:bg-adlive-cyan/20"
-        >
-          <MousePointerClick className="h-3.5 w-3.5" aria-hidden />
-          Simular mensaje del cliente
-        </button>
 
         {confirmDelete ? (
           <span className="flex items-center gap-1">

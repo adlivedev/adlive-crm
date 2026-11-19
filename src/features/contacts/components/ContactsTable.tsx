@@ -56,7 +56,7 @@ export function ContactsTable({
                   checked={allSelected}
                   onChange={onToggleSelectAll}
                   aria-label="Seleccionar todos los contactos filtrados"
-                  className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-[#5b00ff]"
+                  className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-adlive-primary"
                 />
               </th>
               <th scope="col" className="px-4 py-3 font-semibold">
@@ -124,7 +124,7 @@ export function ContactsTable({
                       checked={isSelected}
                       onChange={() => onToggleSelect(contact.id)}
                       aria-label={`Seleccionar a ${contact.full_name}`}
-                      className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-[#5b00ff]"
+                      className="h-4 w-4 cursor-pointer rounded border-adlive-border accent-adlive-primary"
                     />
                   </td>
                   <td className="px-4 py-3">

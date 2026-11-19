@@ -6,7 +6,7 @@
  * y parser tolerante de CSV (; o , con comillas) para la importación masiva.
  */
 
-import type { CreateContactInput } from "@/shared/services/crmActions";
+import type { CreateContactInput } from "@/shared/services/crmStore";
 import type { Contact, Conversation, Opportunity } from "@/shared/types/database";
 import { formatDate } from "@/shared/lib/format";
 
@@ -113,9 +113,14 @@ export function filterContacts(
  * EXPORTACIÓN CSV (descarga real, separador ; para Excel es-CO, BOM UTF-8)
  * ========================================================================== */
 
+/** Neutraliza fórmulas de Excel antes de importar o exportar valores de texto. */
+export function sanitizeSpreadsheetCell(value: string): string {
+  return /^[\s\u0000-\u001f]*[=+\-@]/.test(value) ? `'${value}` : value;
+}
+
 function csvCell(value: string | null): string {
   if (value === null) return "";
-  return `"${value.replace(/"/g, '""')}"`;
+  return `"${sanitizeSpreadsheetCell(value).replace(/"/g, '""')}"`;
 }
 
 export function buildContactsCsv(contacts: Contact[]): string {
@@ -248,11 +253,11 @@ export function parseContactsCsv(text: string): CreateContactInput[] {
     if (!name && !phone) continue;
     if (IMPORT_NAME_KEYS.some((key) => normalizeText(name).includes(key))) continue; // encabezado repetido
     rows.push({
-      full_name: name || "Sin nombre",
+      full_name: sanitizeSpreadsheetCell(name || "Sin nombre"),
       phone_e164: phone.replace(/\D/g, ""),
-      email: idxEmail >= 0 ? cells[idxEmail] || null : null,
-      company_name: idxCompany >= 0 ? cells[idxCompany] || null : null,
-      lead_source: idxSource >= 0 && cells[idxSource] ? cells[idxSource]! : "WhatsApp",
+      email: idxEmail >= 0 && cells[idxEmail] ? sanitizeSpreadsheetCell(cells[idxEmail]!) : null,
+      company_name: idxCompany >= 0 && cells[idxCompany] ? sanitizeSpreadsheetCell(cells[idxCompany]!) : null,
+      lead_source: idxSource >= 0 && cells[idxSource] ? sanitizeSpreadsheetCell(cells[idxSource]!) : "WhatsApp",
     });
   }
   return rows;
