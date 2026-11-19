@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getAppOrigin } from "@/shared/lib/appOrigin";
 import { authErrorStatus, requireTenantAdmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     const input = parsed.data;
     await requireTenantAdmin(input.tenantId);
     const admin = createAdminClient();
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+    const appUrl = getAppOrigin(request);
     const invited = await admin.auth.admin.inviteUserByEmail(input.email, { redirectTo: `${appUrl}/login` });
     if (invited.error || !invited.data.user) {
       return NextResponse.json({ error: "No se pudo invitar al usuario. Verifica el correo." }, { status: 400 });

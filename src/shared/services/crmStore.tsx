@@ -276,45 +276,50 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     window.sessionStorage.removeItem(ACTIVE_TENANT_KEY);
   }, []);
 
-  const loadMemberships = useCallback(async (user: User) => {
+  const loadMemberships = useCallback(async (user: User): Promise<string | null> => {
     const supabase = createClient();
     const email = user.email?.toLowerCase();
     if (!email) {
+      const message = "La cuenta de autenticación no tiene un correo electrónico.";
       clearSession();
-      setDataError("La cuenta de autenticación no tiene un correo electrónico.");
+      setDataError(message);
       setIsHydrated(true);
-      return;
+      return message;
     }
     const memberResult = await supabase.from("tenant_members").select("*").eq("user_id", user.id).eq("is_active", true);
     if (memberResult.error) {
+      const message = "No se pudieron cargar tus membresías. Inténtalo de nuevo.";
       clearSession();
-      setDataError("No se pudieron cargar tus membresías. Inténtalo de nuevo.");
+      setDataError(message);
       setIsHydrated(true);
-      return;
+      return message;
     }
     const nextMemberships = rows<TenantMember>(memberResult.data);
     if (nextMemberships.length === 0) {
+      const message = "Tu usuario aún no pertenece a un espacio de trabajo. Solicita una invitación al administrador.";
       clearSession();
-      setDataError("Tu usuario aún no pertenece a un espacio de trabajo. Solicita una invitación al administrador.");
+      setDataError(message);
       setIsHydrated(true);
-      return;
+      return message;
     }
     const tenantResult = await supabase.from("tenants").select("id,name,slug,branding,status,created_at,updated_at")
       .in("id", nextMemberships.map((member) => member.tenant_id));
     if (tenantResult.error) {
+      const message = "No se pudieron cargar los espacios de trabajo.";
       clearSession();
-      setDataError("No se pudieron cargar los espacios de trabajo.");
+      setDataError(message);
       setIsHydrated(true);
-      return;
+      return message;
     }
     const nextTenants = rows<Tenant>(tenantResult.data).filter((tenant) => tenant.status !== "suspended");
     const allowedIds = new Set(nextTenants.map((tenant) => tenant.id));
     const allowedMemberships = nextMemberships.filter((member) => allowedIds.has(member.tenant_id));
     if (allowedMemberships.length === 0) {
+      const message = "El espacio de trabajo está suspendido o no está disponible.";
       clearSession();
-      setDataError("El espacio de trabajo está suspendido o no está disponible.");
+      setDataError(message);
       setIsHydrated(true);
-      return;
+      return message;
     }
     const remembered = window.sessionStorage.getItem(ACTIVE_TENANT_KEY);
     const tenantId = allowedMemberships.some((member) => member.tenant_id === remembered)
@@ -326,6 +331,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
     setDataError(null);
     setIsHydrated(true);
+    return null;
   }, [clearSession]);
 
   useEffect(() => {
@@ -541,8 +547,8 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     try {
       const { data: result, error } = await createClient().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
       if (error || !result.user) return { ok: false, error: "El correo o la contraseña no son válidos." };
-      await loadMemberships(result.user);
-      return { ok: true };
+      const membershipError = await loadMemberships(result.user);
+      return membershipError ? { ok: false, error: membershipError } : { ok: true };
     } catch {
       return { ok: false, error: "No se pudo iniciar sesión. Revisa la configuración e inténtalo de nuevo." };
     }

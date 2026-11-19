@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getAppOrigin } from "@/shared/lib/appOrigin";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
   if (!parsed.success) return NextResponse.json({ error: "Usa un nombre válido, un correo válido y una contraseña de 12 a 72 caracteres." }, { status: 400 });
   const input = parsed.data;
   const admin = createAdminClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+  const appUrl = getAppOrigin(request);
   const authResult = await admin.auth.signUp({ email: input.email, password: input.password, options: { emailRedirectTo: `${appUrl}/login` } });
   if (authResult.error || !authResult.data.user) {
     return NextResponse.json({ error: "No se pudo registrar el usuario. Es posible que el correo ya esté registrado." }, { status: 400 });

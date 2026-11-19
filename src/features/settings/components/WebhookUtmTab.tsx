@@ -22,10 +22,10 @@ export function WebhookUtmTab() {
   const [token, setToken] = useState<string | null>(null);
   const [copied, setCopied] = useState<"url" | "token" | "script" | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [appOrigin, setAppOrigin] = useState(process.env.NEXT_PUBLIC_APP_URL ?? "");
+  const [appOrigin, setAppOrigin] = useState("");
 
   useEffect(() => {
-    setAppOrigin((current) => current || window.location.origin);
+    setAppOrigin(window.location.origin);
   }, []);
 
   const currentToken = token ?? activeTenant?.public_webhook_token ?? "";

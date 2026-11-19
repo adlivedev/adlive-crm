@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { getAppOrigin } from "@/shared/lib/appOrigin";
 import { authErrorStatus, requirePlatformSuperadmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { brandingSchema } from "@/shared/lib/validation/branding";
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
 
     const input = parsed.data;
     const admin = createAdminClient();
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? new URL(request.url).origin;
+    const appUrl = getAppOrigin(request);
     const authResult = input.temporaryPassword
       ? await admin.auth.admin.createUser({
           email: input.adminEmail,
