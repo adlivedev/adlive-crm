@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Payload demasiado grande." }, { status: 413 });
   }
   if (!isValidMetaSignature(rawBody, request.headers.get("x-hub-signature-256"), process.env.META_APP_SECRET)) {
+    console.warn("WhatsApp webhook: firma no válida; revisar el secreto de aplicación configurado.");
     return NextResponse.json({ error: "Firma no válida." }, { status: 401 });
   }
 
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
 
   try {
     const { insertedWaMessageIds, ...result } = await ingestWhatsAppPayload(parsed.data);
+    console.info("WhatsApp webhook procesado", JSON.stringify(result));
     after(async () => {
       for (const waMessageId of insertedWaMessageIds) {
         try {

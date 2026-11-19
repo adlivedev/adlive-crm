@@ -194,6 +194,8 @@ export interface Message {
   msg_type: MessageType;
   body: string | null;
   media_url: string | null;
+  /** Identificador de multimedia de Meta; se descarga bajo demanda vía /api/v1/messages/[id]/media. */
+  media_id?: string | null;
   media_mime_type: string | null;
   template_name: string | null;
   status: MessageStatus;

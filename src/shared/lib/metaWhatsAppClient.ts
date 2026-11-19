@@ -80,6 +80,18 @@ const remoteTemplateSchema = z.object({ data: z.array(z.object({
   components: z.array(z.object({ type: z.string(), format: z.string().optional(), text: z.string().optional(), buttons: z.array(z.unknown()).optional() }).passthrough()).optional(),
 }).passthrough()) });
 
+/** Descarga multimedia entrante: la URL temporal de Meta expira en minutos, por eso se resuelve bajo demanda. */
+export async function downloadMetaMedia(tenantId: string, mediaId: string): Promise<Response> {
+  if (!/^\d{1,40}$/.test(mediaId)) throw new Error("Identificador de multimedia no válido.");
+  const settings = await config(tenantId);
+  const location = await graph(`/${mediaId}`, settings.accessToken, { method: "GET" }, z.object({ url: z.string().url() }));
+  return fetch(location.url, {
+    headers: { Authorization: `Bearer ${settings.accessToken}` },
+    signal: AbortSignal.timeout(30_000),
+    cache: "no-store",
+  });
+}
+
 export async function listMetaTemplates(tenantId: string) {
   const settings = await config(tenantId);
   const result = await graph(`/${settings.wabaId}/message_templates?limit=100&fields=id,name,status,category,language,components`, settings.accessToken, { method: "GET" }, remoteTemplateSchema);

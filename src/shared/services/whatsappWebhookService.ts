@@ -6,6 +6,7 @@ import { createAdminClient } from "@/shared/lib/supabase/admin";
 import type { MessageType } from "@/shared/types/database";
 
 const mediaSchema = z.object({
+  id: z.string().min(1).max(300).optional(),
   caption: z.string().max(4096).optional(),
   mime_type: z.string().max(100).optional(),
   filename: z.string().max(255).optional(),
@@ -70,20 +71,21 @@ interface NormalizedMessage {
   full_name: string;
   body: string;
   msg_type: MessageType;
+  media_id: string | null;
   media_mime_type: string | null;
   occurred_at: string;
 }
 
-function messageContent(message: WhatsAppMessage): Pick<NormalizedMessage, "body" | "msg_type" | "media_mime_type"> {
+function messageContent(message: WhatsAppMessage): Pick<NormalizedMessage, "body" | "msg_type" | "media_id" | "media_mime_type"> {
   const interactiveText = message.interactive?.button_reply?.title ?? message.interactive?.list_reply?.title;
-  if (message.type === "text") return { body: message.text?.body ?? "", msg_type: "text", media_mime_type: null };
-  if (message.type === "button") return { body: message.button?.text ?? "[Respuesta de botón]", msg_type: "text", media_mime_type: null };
-  if (message.type === "interactive") return { body: interactiveText ?? "[Respuesta interactiva]", msg_type: "text", media_mime_type: null };
-  if (message.type === "image") return { body: message.image?.caption ?? "[Imagen recibida]", msg_type: "image", media_mime_type: message.image?.mime_type ?? null };
-  if (message.type === "audio") return { body: "[Nota de voz recibida]", msg_type: "audio", media_mime_type: message.audio?.mime_type ?? null };
-  if (message.type === "video") return { body: message.video?.caption ?? "[Video recibido]", msg_type: "video", media_mime_type: message.video?.mime_type ?? null };
-  if (message.type === "document") return { body: message.document?.caption ?? message.document?.filename ?? "[Documento recibido]", msg_type: "document", media_mime_type: message.document?.mime_type ?? null };
-  return { body: `[Mensaje de WhatsApp no compatible: ${message.type}]`, msg_type: "system", media_mime_type: null };
+  if (message.type === "text") return { body: message.text?.body ?? "", msg_type: "text", media_id: null, media_mime_type: null };
+  if (message.type === "button") return { body: message.button?.text ?? "[Respuesta de botón]", msg_type: "text", media_id: null, media_mime_type: null };
+  if (message.type === "interactive") return { body: interactiveText ?? "[Respuesta interactiva]", msg_type: "text", media_id: null, media_mime_type: null };
+  if (message.type === "image") return { body: message.image?.caption ?? "[Imagen recibida]", msg_type: "image", media_id: message.image?.id ?? null, media_mime_type: message.image?.mime_type ?? null };
+  if (message.type === "audio") return { body: "[Nota de voz recibida]", msg_type: "audio", media_id: message.audio?.id ?? null, media_mime_type: message.audio?.mime_type ?? null };
+  if (message.type === "video") return { body: message.video?.caption ?? "[Video recibido]", msg_type: "video", media_id: message.video?.id ?? null, media_mime_type: message.video?.mime_type ?? null };
+  if (message.type === "document") return { body: message.document?.caption ?? message.document?.filename ?? "[Documento recibido]", msg_type: "document", media_id: message.document?.id ?? null, media_mime_type: message.document?.mime_type ?? null };
+  return { body: `[Mensaje de WhatsApp no compatible: ${message.type}]`, msg_type: "system", media_id: null, media_mime_type: null };
 }
 
 function normalizeMessage(message: WhatsAppMessage, contacts: WhatsAppContact[]): NormalizedMessage {

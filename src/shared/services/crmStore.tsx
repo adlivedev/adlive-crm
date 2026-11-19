@@ -261,6 +261,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const activeTenantId = session?.tenantId ?? null;
   const activeTenant = useMemo(() => tenants.find((tenant) => tenant.id === activeTenantId) ?? null, [tenants, activeTenantId]);
   const activeMember = useMemo(() => memberships.find((member) => member.tenant_id === activeTenantId) ?? null, [memberships, activeTenantId]);
+  /* Primitivos estables: evita recargas en bucle cuando el objeto del miembro cambia de referencia. */
+  const activeMemberId = activeMember?.id ?? null;
+  const activeMemberRole = activeMember?.role ?? null;
+  const activeMemberCanViewAll = activeMember?.can_view_all_contacts ?? null;
   const userAccounts = useMemo<UserAccount[]>(() => memberships.flatMap((member) => {
     const tenant = tenants.find((item) => item.id === member.tenant_id);
     return tenant ? [{ tenant, memberId: member.id, role: member.role }] : [];
@@ -367,21 +371,26 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     };
   }, [clearSession, loadMemberships]);
 
+  const loadedWorkspaceFor = useRef<string | null>(null);
+
   const loadWorkspace = useCallback(async () => {
-    if (!activeTenantId || !activeMember) {
+    if (!activeTenantId || !activeMemberId) {
       setData(EMPTY_DATA);
       return;
     }
     const requestId = ++workspaceRequest.current;
-    setIsLoadingData(true);
+    /* El indicador de carga solo aparece en la primera carga del workspace;
+       las sincronizaciones en segundo plano son silenciosas. */
+    const isInitialLoad = loadedWorkspaceFor.current !== activeTenantId;
+    if (isInitialLoad) setIsLoadingData(true);
     const supabase = createClient();
     const tenantId = activeTenantId;
-    const restrict = activeMember.role === "agent" && !activeMember.can_view_all_contacts;
+    const restrict = activeMemberRole === "agent" && !activeMemberCanViewAll;
     let opportunityQuery = supabase.from("opportunities").select("*").eq("tenant_id", tenantId);
     let conversationQuery = supabase.from("conversations").select("*").eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
     if (restrict) {
-      opportunityQuery = opportunityQuery.eq("assigned_member_id", activeMember.id);
-      conversationQuery = conversationQuery.eq("assigned_member_id", activeMember.id);
+      opportunityQuery = opportunityQuery.eq("assigned_member_id", activeMemberId);
+      conversationQuery = conversationQuery.eq("assigned_member_id", activeMemberId);
     }
     try {
       const [pipelineR, stageR, opportunityR, conversationR, messageR, memberR, templateR, workflowR, enrollmentR, botR, fieldR, valueR, noteR, taskR, activityR, contactCountR, integrationResponse] = await Promise.all([
@@ -420,20 +429,24 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         contactNotes: rows<ContactNote>(noteR.data), tenantMembers: rows<TenantMember>(memberR.data),
         contactTasks: rows<ContactTask>(taskR.data), contactActivities: rows<ContactActivity>(activityR.data),
       }));
-      setMemberships((previous) => previous.map((member) => member.tenant_id === tenantId
-        ? rows<TenantMember>(memberR.data).find((item) => item.id === member.id) ?? member
-        : member));
+      setMemberships((previous) => previous.map((member) => {
+        if (member.tenant_id !== tenantId) return member;
+        const fresh = rows<TenantMember>(memberR.data).find((item) => item.id === member.id);
+        /* Conservar la referencia si nada cambió evita re-renderizados y recargas en cascada. */
+        return fresh && JSON.stringify(fresh) !== JSON.stringify(member) ? fresh : member;
+      }));
       setWorkspaceContactTotal(contactCountR.count ?? 0);
+      loadedWorkspaceFor.current = tenantId;
       setDataError(null);
     } catch (error) {
       if (requestId === workspaceRequest.current) setDataError(`No se pudieron cargar los datos: ${errorMessage(error)}`);
     } finally {
       if (requestId === workspaceRequest.current) setIsLoadingData(false);
     }
-  }, [activeMember, activeTenantId]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId]);
 
   const loadContacts = useCallback(async () => {
-    if (!activeTenantId || !activeMember) {
+    if (!activeTenantId || !activeMemberId) {
       setData((previous) => ({ ...previous, contacts: [] }));
       setContactTotal(0);
       return;
@@ -442,7 +455,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     const page = Math.max(0, contactQuery.page);
     let query = supabase.from("contacts").select("*", { count: "exact" }).eq("tenant_id", activeTenantId);
-    if (activeMember.role === "agent" && !activeMember.can_view_all_contacts) query = query.eq("assigned_member_id", activeMember.id);
+    if (activeMemberRole === "agent" && !activeMemberCanViewAll) query = query.eq("assigned_member_id", activeMemberId);
     const search = cleanSearch(contactQuery.search);
     if (search) query = query.or(`full_name.ilike.%${search}%,phone_e164.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`);
     if (contactQuery.tag !== "all") query = query.contains("tags", [contactQuery.tag]);
@@ -459,7 +472,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }
     setData((previous) => ({ ...previous, contacts: rows<Contact>(result) }));
     setContactTotal(count ?? 0);
-  }, [activeMember, activeTenantId, contactQuery]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, contactQuery]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
   useEffect(() => { void loadContacts(); }, [loadContacts]);
@@ -475,11 +488,11 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     };
     const unsubscribe = subscribeToInboxRealtime(activeTenantId, {
       onContact: (contact) => {
-        if (activeMember?.role === "agent" && !activeMember.can_view_all_contacts && contact.assigned_member_id !== activeMember.id) return;
+        if (activeMemberRole === "agent" && !activeMemberCanViewAll && contact.assigned_member_id !== activeMemberId) return;
         setData((previous) => ({ ...previous, contacts: upsert(previous.contacts, contact) }));
       },
       onConversation: (conversation) => {
-        if (activeMember?.role === "agent" && !activeMember.can_view_all_contacts && conversation.assigned_member_id !== activeMember.id) return;
+        if (activeMemberRole === "agent" && !activeMemberCanViewAll && conversation.assigned_member_id !== activeMemberId) return;
         setData((previous) => ({ ...previous, conversations: upsert(previous.conversations, conversation) }));
       },
       onMessage: (message) => setData((previous) => ({
@@ -488,7 +501,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       })),
     });
     return () => unsubscribe?.();
-  }, [activeMember, activeTenantId]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId]);
 
   const refreshData = useCallback(async () => {
     await Promise.all([loadWorkspace(), loadContacts()]);

@@ -39,7 +39,7 @@ const messageSchema = z.object({
   wa_message_id: z.string().nullable(), in_reply_to_message_id: nullableUuid.optional(),
   direction: z.enum(["inbound", "outbound"]),
   msg_type: z.enum(["text", "template", "image", "audio", "video", "document", "system"]),
-  body: z.string().nullable(), media_url: z.string().nullable(), media_mime_type: z.string().nullable(),
+  body: z.string().nullable(), media_url: z.string().nullable(), media_id: z.string().nullable().optional(), media_mime_type: z.string().nullable(),
   template_name: z.string().nullable(), status: z.enum(["queued", "sent", "delivered", "read", "failed"]),
   error_reason: z.string().nullable(), created_at: z.string(),
 }) satisfies z.ZodType<Message>;

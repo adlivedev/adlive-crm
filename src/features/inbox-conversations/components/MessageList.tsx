@@ -14,8 +14,15 @@ import { formatTime } from "@/shared/lib/format";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Message } from "@/shared/types/database";
 
+/** URL de reproducción: archivo directo o descarga autenticada desde Meta con el media_id. */
+function playbackUrl(message: Message): string | null {
+  if (message.media_url?.startsWith("https://")) return message.media_url;
+  if (message.media_id) return `/api/v1/messages/${message.id}/media`;
+  return null;
+}
+
 function VoiceNoteBubble({ message }: { message: Message }) {
-  const mediaUrl = message.media_url?.startsWith("https://") ? message.media_url : null;
+  const mediaUrl = playbackUrl(message);
   if (mediaUrl) return <audio controls preload="none" src={mediaUrl} className="h-10 w-64 max-w-full" aria-label="Nota de voz" />;
   return (
     <span className="inline-flex items-center gap-2">
@@ -26,7 +33,7 @@ function VoiceNoteBubble({ message }: { message: Message }) {
 }
 
 function MediaBubble({ message }: { message: Message }) {
-  const mediaUrl = message.media_url?.startsWith("https://") ? message.media_url : null;
+  const mediaUrl = playbackUrl(message);
   const label = message.msg_type === "document" ? "Documento" : message.msg_type === "video" ? "Video" : "Imagen";
   return (
     <span className="flex max-w-64 flex-col gap-1.5">
