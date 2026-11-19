@@ -479,6 +479,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!activeTenantId) return;
+    let disposed = false;
+    let syncRunning = false;
+    const tenantId = activeTenantId;
+    const restrict = activeMemberRole === "agent" && !activeMemberCanViewAll;
     const upsert = <T extends { id: string }>(items: T[], item: T): T[] => {
       const index = items.findIndex((current) => current.id === item.id);
       if (index < 0) return [item, ...items];
@@ -486,22 +490,64 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       next[index] = item;
       return next;
     };
-    const unsubscribe = subscribeToInboxRealtime(activeTenantId, {
+
+    /* Realtime da la actualización inmediata. Esta consulta ligera es un respaldo
+       silencioso para no dejar contactos nuevos invisibles si un evento se pierde. */
+    const syncInbox = async () => {
+      if (disposed || syncRunning || document.visibilityState !== "visible") return;
+      syncRunning = true;
+      try {
+        const supabase = createClient();
+        let conversationQuery = supabase.from("conversations").select("*")
+          .eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
+        if (restrict) conversationQuery = conversationQuery.eq("assigned_member_id", activeMemberId);
+        const [conversationR, messageR] = await Promise.all([
+          conversationQuery,
+          supabase.from("messages").select("*").eq("tenant_id", tenantId).order("created_at").limit(2000),
+          loadContacts(),
+        ]);
+        if (disposed || conversationR.error || messageR.error) return;
+        setData((previous) => ({
+          ...previous,
+          conversations: rows<Conversation>(conversationR.data),
+          messages: rows<Message>(messageR.data),
+        }));
+      } finally {
+        syncRunning = false;
+      }
+    };
+    const handleFocus = () => { void syncInbox(); };
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") void syncInbox();
+    };
+    const unsubscribe = subscribeToInboxRealtime(tenantId, {
       onContact: (contact) => {
-        if (activeMemberRole === "agent" && !activeMemberCanViewAll && contact.assigned_member_id !== activeMemberId) return;
-        setData((previous) => ({ ...previous, contacts: upsert(previous.contacts, contact) }));
+        if (restrict && contact.assigned_member_id !== activeMemberId) return;
+        /* Recargar respeta búsqueda, filtros, paginación y el total del servidor. */
+        void loadContacts();
       },
       onConversation: (conversation) => {
-        if (activeMemberRole === "agent" && !activeMemberCanViewAll && conversation.assigned_member_id !== activeMemberId) return;
+        if (restrict && conversation.assigned_member_id !== activeMemberId) return;
         setData((previous) => ({ ...previous, conversations: upsert(previous.conversations, conversation) }));
+        /* También cubre una conversación cuyo evento de contacto no haya llegado. */
+        void loadContacts();
       },
       onMessage: (message) => setData((previous) => ({
         ...previous,
         messages: upsert(previous.messages, message).sort((a, b) => a.created_at.localeCompare(b.created_at)),
       })),
     });
-    return () => unsubscribe?.();
-  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId]);
+    const interval = window.setInterval(() => { void syncInbox(); }, 15_000);
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibility);
+      unsubscribe?.();
+    };
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, loadContacts]);
 
   const refreshData = useCallback(async () => {
     await Promise.all([loadWorkspace(), loadContacts()]);
