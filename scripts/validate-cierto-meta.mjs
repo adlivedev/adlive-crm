@@ -44,13 +44,24 @@ async function fetchChecked(url, init, code) {
   }
 }
 
-async function postWebhook(rawBody, secret, validSignature = true) {
+async function postWebhook(rawBody, secret, validSignature = true, url = CALLBACK) {
   const signature = createHmac("sha256", validSignature ? secret : randomBytes(32)).update(rawBody).digest("hex");
-  return fetchChecked(CALLBACK, {
+  return fetchChecked(url, {
     method: "POST",
     headers: { "content-type": "application/json", "x-hub-signature-256": `sha256=${signature}` },
     body: rawBody,
   }, "CIERTO_WEBHOOK_NETWORK_FAILED");
+}
+
+async function readSubscribedApps(wabaId, graphHeaders) {
+  const response = await fetchChecked(
+    `https://graph.facebook.com/v27.0/${encodeURIComponent(wabaId)}/subscribed_apps`,
+    { headers: graphHeaders },
+    "CIERTO_GRAPH_APPS_NETWORK_FAILED",
+  );
+  const body = await response.json().catch(() => null);
+  assert(response.ok && Array.isArray(body?.data), "CIERTO_GRAPH_APPS_REJECTED");
+  return body.data;
 }
 
 async function run() {
@@ -115,24 +126,58 @@ async function run() {
   const foreignPost = await postWebhook(foreignPayload, appSecret);
   assert(foreignPost.status === 403, "CIERTO_FOREIGN_PHONE_NOT_REJECTED");
 
+  const legacyUrl = `${ORIGIN}/api/v1/webhooks/whatsapp`;
+  const legacyPayload = JSON.stringify({
+    object: "whatsapp_business_account",
+    entry: [{ id: wabaId, changes: [] }],
+  });
+  const legacyValidPost = await postWebhook(legacyPayload, appSecret, true, legacyUrl);
+  assert(legacyValidPost.status === 200, "CIERTO_LEGACY_VALID_SIGNATURE_REJECTED");
+  const legacyInvalidPost = await postWebhook(legacyPayload, appSecret, false, legacyUrl);
+  assert(legacyInvalidPost.status === 401, "CIERTO_LEGACY_INVALID_SIGNATURE_NOT_REJECTED");
+
   const graphHeaders = { Authorization: `Bearer ${accessToken}` };
   const phoneResponse = await fetchChecked(
-    `https://graph.facebook.com/v21.0/${encodeURIComponent(phoneNumberId)}?fields=id,display_phone_number`,
+    `https://graph.facebook.com/v27.0/${encodeURIComponent(phoneNumberId)}?fields=id,display_phone_number`,
     { headers: graphHeaders },
     "CIERTO_GRAPH_PHONE_NETWORK_FAILED",
   );
   const phoneBody = await phoneResponse.json().catch(() => null);
   assert(phoneResponse.ok && phoneBody?.id === phoneNumberId, "CIERTO_GRAPH_PHONE_REJECTED");
 
-  const appsResponse = await fetchChecked(
-    `https://graph.facebook.com/v21.0/${encodeURIComponent(wabaId)}/subscribed_apps`,
-    { headers: graphHeaders },
-    "CIERTO_GRAPH_APPS_NETWORK_FAILED",
-  );
-  const appsBody = await appsResponse.json().catch(() => null);
-  assert(appsResponse.ok && Array.isArray(appsBody?.data), "CIERTO_GRAPH_APPS_REJECTED");
-  const subscribedAppIds = appsBody.data.map((app) => app?.id).filter((id) => typeof id === "string");
+  let subscribedApps = await readSubscribedApps(wabaId, graphHeaders);
+  let overrideUpdated = false;
+  if (!subscribedApps.some((app) => app?.override_callback_uri === CALLBACK)) {
+    const subscribeResponse = await fetchChecked(
+      `https://graph.facebook.com/v27.0/${encodeURIComponent(wabaId)}/subscribed_apps`,
+      {
+        method: "POST",
+        headers: { ...graphHeaders, "content-type": "application/json" },
+        body: JSON.stringify({ override_callback_uri: CALLBACK, verify_token: verifyToken }),
+      },
+      "CIERTO_META_OVERRIDE_NETWORK_FAILED",
+    );
+    const subscribeBody = await subscribeResponse.json().catch(() => null);
+    assert(subscribeResponse.ok && subscribeBody?.success === true, "CIERTO_META_OVERRIDE_REJECTED");
+    overrideUpdated = true;
+    subscribedApps = await readSubscribedApps(wabaId, graphHeaders);
+  }
+  assert(subscribedApps.some((app) => app?.override_callback_uri === CALLBACK), "CIERTO_META_OVERRIDE_NOT_CONFIRMED");
+  const subscribedAppIds = subscribedApps
+    .map((app) => app?.whatsapp_business_api_data?.id ?? app?.id)
+    .filter((id) => typeof id === "string");
   assert(subscribedAppIds.length > 0, "CIERTO_NO_SUBSCRIBED_APP");
+
+  const configurationResponse = await fetchChecked(
+    `https://graph.facebook.com/v27.0/${encodeURIComponent(phoneNumberId)}?fields=webhook_configuration`,
+    { headers: graphHeaders },
+    "CIERTO_GRAPH_CONFIGURATION_NETWORK_FAILED",
+  );
+  const configurationBody = await configurationResponse.json().catch(() => null);
+  assert(
+    configurationResponse.ok && configurationBody?.webhook_configuration?.whatsapp_business_account === CALLBACK,
+    "CIERTO_PHONE_CONFIGURATION_NOT_CONFIRMED",
+  );
 
   console.log("CIERTO_EXTERNAL_VALIDATION_RESULT", JSON.stringify({
     validChallenge: true,
@@ -140,12 +185,18 @@ async function run() {
     validSignatureAccepted: true,
     invalidSignatureRejected: true,
     foreignPhoneRejected: true,
+    legacyValidSignatureAccepted: true,
+    legacyInvalidSignatureRejected: true,
     graphPhoneConnected: true,
     wabaSubscriptionPresent: true,
+    wabaOverrideConfirmed: true,
+    phoneConfigurationConfirmed: true,
+    overrideUpdated,
     subscribedAppIds,
     persistentTestDataCreated: false,
     realMetaDeliveryObserved: false,
-    dashboardCallbackVerified: false,
+    defaultAppCallbackChanged: false,
+    templateEventsUseDefaultCallback: true,
   }));
 }
 
