@@ -12,6 +12,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { assignedMemberForView, contactMemberForView } from "@/shared/lib/auth/roleAccess";
+import { ACTIVE_TENANT_COOKIE } from "@/shared/lib/auth/workspaceAccess";
 import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
 import { subscribeToInboxRealtime } from "@/shared/services/inboxRealtimeService";
 import type {
@@ -30,6 +32,7 @@ import type {
   Pipeline,
   PipelineStage,
   Tenant,
+  TenantBranding,
   TenantIntegrationVault,
   TenantMember,
   WhatsAppTemplate,
@@ -40,6 +43,29 @@ import type {
 
 const ACTIVE_TENANT_KEY = "crm-active-tenant";
 const CONTACTS_PAGE_SIZE = 50;
+
+function rememberActiveTenant(tenantId: string) {
+  window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+  const secure = window.location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${ACTIVE_TENANT_COOKIE}=${encodeURIComponent(tenantId)}; Path=/; Max-Age=2592000; SameSite=Lax${secure}`;
+}
+
+function rememberedTenant(): string | null {
+  const stored = window.sessionStorage.getItem(ACTIVE_TENANT_KEY);
+  if (stored) return stored;
+  const cookie = document.cookie.split("; ").find((item) => item.startsWith(`${ACTIVE_TENANT_COOKIE}=`));
+  if (!cookie) return null;
+  try {
+    return decodeURIComponent(cookie.slice(ACTIVE_TENANT_COOKIE.length + 1));
+  } catch {
+    return null;
+  }
+}
+
+function forgetActiveTenant() {
+  window.sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+  document.cookie = `${ACTIVE_TENANT_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
 
 export interface CrmSession {
   email: string;
@@ -102,6 +128,7 @@ export interface AuthResult {
   ok: boolean;
   error?: string;
   requiresEmailConfirmation?: boolean;
+  loginPath?: string;
 }
 
 export type ContactPatch = Partial<Pick<Contact,
@@ -144,6 +171,7 @@ interface CrmData {
 
 interface CrmContextValue {
   isHydrated: boolean;
+  isPlatformSuperadmin: boolean;
   isLoadingData: boolean;
   isMutating: boolean;
   dataError: string | null;
@@ -151,6 +179,8 @@ interface CrmContextValue {
   activeTenant: Tenant | null;
   activeMember: TenantMember | null;
   userAccounts: UserAccount[];
+  availableTenants: Tenant[];
+  viewingAsMemberId: string | null;
   contacts: Contact[];
   conversations: Conversation[];
   messages: Message[];
@@ -175,11 +205,13 @@ interface CrmContextValue {
   contactPageSize: number;
   contactQuery: ContactQuery;
   setContactQuery: (patch: Partial<ContactQuery>) => void;
-  login: (email: string, password: string) => Promise<AuthResult>;
+  login: (email: string, password: string, workspaceSlug?: string | null) => Promise<AuthResult>;
   register: (agencyName: string, email: string, password: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
   switchTenant: (tenantId: string) => void;
+  setViewingAsMemberId: (memberId: string | null) => void;
   refreshData: () => Promise<void>;
+  updateActiveTenantBranding: (branding: TenantBranding) => void;
   createContact: (input: CreateContactInput) => void;
   importContacts: (inputs: CreateContactInput[]) => Promise<{ imported: number; failed: number }>;
   updateContact: (contactId: string, patch: ContactPatch) => void;
@@ -214,6 +246,7 @@ interface CrmContextValue {
   toggleAiBot: (botId: string) => void;
   setIntegrationConnected: (provider: IntegrationProvider, connected: boolean, credentials?: Record<string, string>) => Promise<void>;
   addCustomField: (input: CreateCustomFieldInput) => void;
+  updateCustomField: (fieldId: string, input: Omit<CreateCustomFieldInput, "field_key">) => void;
   deleteCustomField: (fieldId: string) => void;
   addCustomValue: (valueKey: string, valueContent: string) => void;
   deleteCustomValue: (valueId: string) => void;
@@ -249,12 +282,14 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [session, setSession] = useState<CrmSession | null>(null);
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isPlatformSuperadmin, setIsPlatformSuperadmin] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isMutating, setIsMutating] = useState(false);
   const [dataError, setDataError] = useState<string | null>(null);
   const [contactTotal, setContactTotal] = useState(0);
   const [workspaceContactTotal, setWorkspaceContactTotal] = useState(0);
   const [contactQuery, setContactQueryState] = useState<ContactQuery>(EMPTY_CONTACT_QUERY);
+  const [viewingAsMemberId, setViewingAsMemberIdState] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
   const contactRequest = useRef(0);
 
@@ -274,13 +309,15 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setMemberships([]);
     setTenants([]);
+    setIsPlatformSuperadmin(false);
+    setViewingAsMemberIdState(null);
     setData(EMPTY_DATA);
     setContactTotal(0);
     setWorkspaceContactTotal(0);
-    window.sessionStorage.removeItem(ACTIVE_TENANT_KEY);
+    forgetActiveTenant();
   }, []);
 
-  const loadMemberships = useCallback(async (user: User): Promise<string | null> => {
+  const loadMemberships = useCallback(async (user: User, preferredTenantId?: string): Promise<string | null> => {
     const supabase = createClient();
     const email = user.email?.toLowerCase();
     if (!email) {
@@ -290,7 +327,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setIsHydrated(true);
       return message;
     }
-    const memberResult = await supabase.from("tenant_members").select("*").eq("user_id", user.id).eq("is_active", true);
+    const [memberResult, superadminResult] = await Promise.all([
+      supabase.from("tenant_members").select("*").eq("user_id", user.id).eq("is_active", true),
+      supabase.rpc("is_platform_superadmin"),
+    ]);
     if (memberResult.error) {
       const message = "No se pudieron cargar tus membresías. Inténtalo de nuevo.";
       clearSession();
@@ -299,15 +339,17 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       return message;
     }
     const nextMemberships = rows<TenantMember>(memberResult.data);
-    if (nextMemberships.length === 0) {
+    const superadmin = !superadminResult.error && superadminResult.data === true;
+    if (nextMemberships.length === 0 && !superadmin) {
       const message = "Tu usuario aún no pertenece a un espacio de trabajo. Solicita una invitación al administrador.";
       clearSession();
       setDataError(message);
       setIsHydrated(true);
       return message;
     }
-    const tenantResult = await supabase.from("tenants").select("id,name,slug,branding,status,created_at,updated_at")
-      .in("id", nextMemberships.map((member) => member.tenant_id));
+    let tenantQuery = supabase.from("tenants").select("id,name,slug,branding,status,created_at,updated_at");
+    if (!superadmin) tenantQuery = tenantQuery.in("id", nextMemberships.map((member) => member.tenant_id));
+    const tenantResult = await tenantQuery;
     if (tenantResult.error) {
       const message = "No se pudieron cargar los espacios de trabajo.";
       clearSession();
@@ -315,24 +357,29 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setIsHydrated(true);
       return message;
     }
-    const nextTenants = rows<Tenant>(tenantResult.data).filter((tenant) => tenant.status !== "suspended");
+    const nextTenants = rows<Tenant>(tenantResult.data).filter((tenant) => superadmin || tenant.status !== "suspended");
     const allowedIds = new Set(nextTenants.map((tenant) => tenant.id));
     const allowedMemberships = nextMemberships.filter((member) => allowedIds.has(member.tenant_id));
-    if (allowedMemberships.length === 0) {
+    if ((!superadmin && allowedMemberships.length === 0) || (superadmin && nextTenants.length === 0)) {
       const message = "El espacio de trabajo está suspendido o no está disponible.";
       clearSession();
       setDataError(message);
       setIsHydrated(true);
       return message;
     }
-    const remembered = window.sessionStorage.getItem(ACTIVE_TENANT_KEY);
-    const tenantId = allowedMemberships.some((member) => member.tenant_id === remembered)
-      ? remembered!
+    const remembered = preferredTenantId ?? rememberedTenant();
+    const defaultTenantId = superadmin
+      ? (nextTenants.find((tenant) => tenant.slug === "adlive") ?? nextTenants[0])!.id
       : allowedMemberships[0]!.tenant_id;
-    setMemberships(allowedMemberships);
+    const canUseRemembered = nextTenants.some((tenant) => tenant.id === remembered)
+      && (superadmin || allowedMemberships.some((member) => member.tenant_id === remembered));
+    const tenantId = canUseRemembered ? remembered! : defaultTenantId;
+    setMemberships(superadmin ? nextMemberships : allowedMemberships);
     setTenants(nextTenants);
+    setIsPlatformSuperadmin(superadmin);
+    setViewingAsMemberIdState(null);
     setSession({ email, tenantId });
-    window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
+    rememberActiveTenant(tenantId);
     setDataError(null);
     setIsHydrated(true);
     return null;
@@ -374,24 +421,29 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const loadedWorkspaceFor = useRef<string | null>(null);
 
   const loadWorkspace = useCallback(async () => {
-    if (!activeTenantId || !activeMemberId) {
+    if (!activeTenantId || (!activeMemberId && !isPlatformSuperadmin)) {
       setData(EMPTY_DATA);
       return;
     }
     const requestId = ++workspaceRequest.current;
-    /* El indicador de carga solo aparece en la primera carga del workspace;
+    const assignedMemberId = assignedMemberForView(activeMemberRole, activeMemberId, viewingAsMemberId);
+    const contactMemberId = contactMemberForView(activeMemberRole, activeMemberId, activeMemberCanViewAll, viewingAsMemberId);
+    const workspaceViewKey = `${activeTenantId}:${assignedMemberId ?? "all"}:${contactMemberId ?? "all"}`;
+    /* El indicador de carga solo aparece al cambiar de workspace o vista;
        las sincronizaciones en segundo plano son silenciosas. */
-    const isInitialLoad = loadedWorkspaceFor.current !== activeTenantId;
+    const isInitialLoad = loadedWorkspaceFor.current !== workspaceViewKey;
     if (isInitialLoad) setIsLoadingData(true);
     const supabase = createClient();
     const tenantId = activeTenantId;
-    const restrict = activeMemberRole === "agent" && !activeMemberCanViewAll;
+    const canReadIntegrations = isPlatformSuperadmin || ["owner", "admin"].includes(activeMemberRole ?? "");
     let opportunityQuery = supabase.from("opportunities").select("*").eq("tenant_id", tenantId);
     let conversationQuery = supabase.from("conversations").select("*").eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
-    if (restrict) {
-      opportunityQuery = opportunityQuery.eq("assigned_member_id", activeMemberId);
-      conversationQuery = conversationQuery.eq("assigned_member_id", activeMemberId);
+    let contactCountQuery = supabase.from("contacts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId);
+    if (assignedMemberId) {
+      opportunityQuery = opportunityQuery.eq("assigned_member_id", assignedMemberId);
+      conversationQuery = conversationQuery.eq("assigned_member_id", assignedMemberId);
     }
+    if (contactMemberId) contactCountQuery = contactCountQuery.eq("assigned_member_id", contactMemberId);
     try {
       const [pipelineR, stageR, opportunityR, conversationR, messageR, memberR, templateR, workflowR, enrollmentR, botR, fieldR, valueR, noteR, taskR, activityR, contactCountR, integrationResponse] = await Promise.all([
         supabase.from("pipelines").select("*").eq("tenant_id", tenantId),
@@ -409,13 +461,17 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         supabase.from("contact_notes").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
         supabase.from("contact_tasks").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
         supabase.from("contact_activities").select("*").eq("tenant_id", tenantId).order("created_at", { ascending: false }).limit(1000),
-        supabase.from("contacts").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId),
-        fetch(`/api/v1/integrations?tenantId=${encodeURIComponent(tenantId)}`, { cache: "no-store" }),
+        contactCountQuery,
+        canReadIntegrations
+          ? fetch(`/api/v1/integrations?tenantId=${encodeURIComponent(tenantId)}${["owner", "admin"].includes(activeMemberRole ?? "") ? "&includeWebhookToken=1" : ""}`, { cache: "no-store" })
+          : Promise.resolve(null),
       ]);
       const failed = [pipelineR, stageR, opportunityR, conversationR, messageR, memberR, templateR, workflowR, enrollmentR, botR, fieldR, valueR, noteR, taskR, activityR, contactCountR].find((result) => result.error);
       if (failed?.error) throw new Error(failed.error.message);
-      if (!integrationResponse.ok) throw new Error("No se pudieron cargar las integraciones del espacio de trabajo.");
-      const integrationResult = await integrationResponse.json() as { integrations?: TenantIntegrationVault[] };
+      if (integrationResponse && !integrationResponse.ok) throw new Error("No se pudieron cargar las integraciones del espacio de trabajo.");
+      const integrationResult = integrationResponse
+        ? await integrationResponse.json() as { integrations?: TenantIntegrationVault[] }
+        : { integrations: [] };
       if (requestId !== workspaceRequest.current) return;
       setData((previous) => ({
         ...previous,
@@ -436,17 +492,17 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         return fresh && JSON.stringify(fresh) !== JSON.stringify(member) ? fresh : member;
       }));
       setWorkspaceContactTotal(contactCountR.count ?? 0);
-      loadedWorkspaceFor.current = tenantId;
+      loadedWorkspaceFor.current = workspaceViewKey;
       setDataError(null);
     } catch (error) {
       if (requestId === workspaceRequest.current) setDataError(`No se pudieron cargar los datos: ${errorMessage(error)}`);
     } finally {
       if (requestId === workspaceRequest.current) setIsLoadingData(false);
     }
-  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, isPlatformSuperadmin, viewingAsMemberId]);
 
   const loadContacts = useCallback(async () => {
-    if (!activeTenantId || !activeMemberId) {
+    if (!activeTenantId || (!activeMemberId && !isPlatformSuperadmin)) {
       setData((previous) => ({ ...previous, contacts: [] }));
       setContactTotal(0);
       return;
@@ -454,8 +510,9 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     const requestId = ++contactRequest.current;
     const supabase = createClient();
     const page = Math.max(0, contactQuery.page);
+    const contactMemberId = contactMemberForView(activeMemberRole, activeMemberId, activeMemberCanViewAll, viewingAsMemberId);
     let query = supabase.from("contacts").select("*", { count: "exact" }).eq("tenant_id", activeTenantId);
-    if (activeMemberRole === "agent" && !activeMemberCanViewAll) query = query.eq("assigned_member_id", activeMemberId);
+    if (contactMemberId) query = query.eq("assigned_member_id", contactMemberId);
     const search = cleanSearch(contactQuery.search);
     if (search) query = query.or(`full_name.ilike.%${search}%,phone_e164.ilike.%${search}%,email.ilike.%${search}%,company_name.ilike.%${search}%`);
     if (contactQuery.tag !== "all") query = query.contains("tags", [contactQuery.tag]);
@@ -472,17 +529,18 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }
     setData((previous) => ({ ...previous, contacts: rows<Contact>(result) }));
     setContactTotal(count ?? 0);
-  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, contactQuery]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, contactQuery, isPlatformSuperadmin, viewingAsMemberId]);
 
   useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
   useEffect(() => { void loadContacts(); }, [loadContacts]);
 
   useEffect(() => {
-    if (!activeTenantId) return;
+    if (!activeTenantId || (!activeMemberId && !isPlatformSuperadmin)) return;
     let disposed = false;
     let syncRunning = false;
     const tenantId = activeTenantId;
-    const restrict = activeMemberRole === "agent" && !activeMemberCanViewAll;
+    const assignedMemberId = assignedMemberForView(activeMemberRole, activeMemberId, viewingAsMemberId);
+    const contactMemberId = contactMemberForView(activeMemberRole, activeMemberId, activeMemberCanViewAll, viewingAsMemberId);
     const upsert = <T extends { id: string }>(items: T[], item: T): T[] => {
       const index = items.findIndex((current) => current.id === item.id);
       if (index < 0) return [item, ...items];
@@ -500,7 +558,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         const supabase = createClient();
         let conversationQuery = supabase.from("conversations").select("*")
           .eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
-        if (restrict) conversationQuery = conversationQuery.eq("assigned_member_id", activeMemberId);
+        if (assignedMemberId) conversationQuery = conversationQuery.eq("assigned_member_id", assignedMemberId);
         const [conversationR, messageR] = await Promise.all([
           conversationQuery,
           supabase.from("messages").select("*").eq("tenant_id", tenantId).order("created_at").limit(2000),
@@ -522,20 +580,20 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     };
     const unsubscribe = subscribeToInboxRealtime(tenantId, {
       onContact: (contact) => {
-        if (restrict && contact.assigned_member_id !== activeMemberId) return;
+        if (contactMemberId && contact.assigned_member_id !== contactMemberId) return;
         /* Recargar respeta búsqueda, filtros, paginación y el total del servidor. */
         void loadContacts();
       },
       onConversation: (conversation) => {
-        if (restrict && conversation.assigned_member_id !== activeMemberId) return;
+        if (assignedMemberId && conversation.assigned_member_id !== assignedMemberId) return;
         setData((previous) => ({ ...previous, conversations: upsert(previous.conversations, conversation) }));
         /* También cubre una conversación cuyo evento de contacto no haya llegado. */
         void loadContacts();
       },
-      onMessage: (message) => setData((previous) => ({
-        ...previous,
-        messages: upsert(previous.messages, message).sort((a, b) => a.created_at.localeCompare(b.created_at)),
-      })),
+      onMessage: (message) => setData((previous) => {
+        if (assignedMemberId && !previous.conversations.some((item) => item.id === message.conversation_id)) return previous;
+        return { ...previous, messages: upsert(previous.messages, message).sort((a, b) => a.created_at.localeCompare(b.created_at)) };
+      }),
     });
     const interval = window.setInterval(() => { void syncInbox(); }, 15_000);
     window.addEventListener("focus", handleFocus);
@@ -547,11 +605,16 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       document.removeEventListener("visibilitychange", handleVisibility);
       unsubscribe?.();
     };
-  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, loadContacts]);
+  }, [activeMemberCanViewAll, activeMemberId, activeMemberRole, activeTenantId, isPlatformSuperadmin, loadContacts, viewingAsMemberId]);
 
   const refreshData = useCallback(async () => {
     await Promise.all([loadWorkspace(), loadContacts()]);
   }, [loadContacts, loadWorkspace]);
+
+  const updateActiveTenantBranding = useCallback((branding: TenantBranding) => {
+    if (!activeTenantId) return;
+    setTenants((previous) => previous.map((tenant) => tenant.id === activeTenantId ? { ...tenant, branding } : tenant));
+  }, [activeTenantId]);
 
   const runMutationAsync = useCallback(async (operation: () => Promise<void>): Promise<void> => {
     setIsMutating(true);
@@ -573,9 +636,9 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   }, [runMutationAsync]);
 
   const requireTenant = useCallback((): string => {
-    if (!activeTenantId || !activeMember) throw new Error("No hay un espacio de trabajo activo.");
+    if (!activeTenantId || (!activeMember && !isPlatformSuperadmin)) throw new Error("No hay un espacio de trabajo activo.");
     return activeTenantId;
-  }, [activeMember, activeTenantId]);
+  }, [activeMember, activeTenantId, isPlatformSuperadmin]);
 
   const setIntegrationConnected = useCallback(async (
     provider: IntegrationProvider,
@@ -602,12 +665,28 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshData, requireTenant]);
 
-  const login = useCallback(async (email: string, password: string): Promise<AuthResult> => {
+  const login = useCallback(async (email: string, password: string, workspaceSlug?: string | null): Promise<AuthResult> => {
     try {
-      const { data: result, error } = await createClient().auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
-      if (error || !result.user) return { ok: false, error: "El correo o la contraseña no son válidos." };
-      const membershipError = await loadMemberships(result.user);
-      return membershipError ? { ok: false, error: membershipError } : { ok: true };
+      const response = await fetch("/api/v1/auth/workspace-login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), password, workspaceSlug: workspaceSlug || null }),
+      });
+      const result = await response.json() as { error?: string; tenantId?: string };
+      if (!response.ok || !result.tenantId) return { ok: false, error: result.error ?? "No se pudo iniciar sesión." };
+      rememberActiveTenant(result.tenantId);
+      const supabase = createClient();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) {
+        await supabase.auth.signOut();
+        forgetActiveTenant();
+        return { ok: false, error: "No se pudo establecer la sesión. Inténtalo de nuevo." };
+      }
+      const membershipError = await loadMemberships(authData.user, result.tenantId);
+      if (membershipError) {
+        await supabase.auth.signOut();
+        return { ok: false, error: membershipError };
+      }
+      return { ok: true };
     } catch {
       return { ok: false, error: "No se pudo iniciar sesión. Revisa la configuración e inténtalo de nuevo." };
     }
@@ -619,9 +698,9 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ agencyName, email, password }),
       });
-      const result = await response.json() as { error?: string; requiresEmailConfirmation?: boolean };
+      const result = await response.json() as { error?: string; requiresEmailConfirmation?: boolean; loginPath?: string };
       if (!response.ok) return { ok: false, error: result.error ?? "No se pudo crear la cuenta." };
-      return { ok: true, requiresEmailConfirmation: result.requiresEmailConfirmation };
+      return { ok: true, requiresEmailConfirmation: result.requiresEmailConfirmation, loginPath: result.loginPath };
     } catch {
       return { ok: false, error: "No se pudo crear la cuenta. Inténtalo de nuevo." };
     }
@@ -633,12 +712,25 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   }, [clearSession]);
 
   const switchTenant = useCallback((tenantId: string) => {
-    if (!session || !memberships.some((member) => member.tenant_id === tenantId)) return;
+    const allowed = memberships.some((member) => member.tenant_id === tenantId)
+      || (isPlatformSuperadmin && tenants.some((tenant) => tenant.id === tenantId));
+    if (!session || !allowed) return;
     setData(EMPTY_DATA);
+    setViewingAsMemberIdState(null);
     setContactQueryState(EMPTY_CONTACT_QUERY);
     setSession({ ...session, tenantId });
-    window.sessionStorage.setItem(ACTIVE_TENANT_KEY, tenantId);
-  }, [memberships, session]);
+    rememberActiveTenant(tenantId);
+  }, [isPlatformSuperadmin, memberships, session, tenants]);
+
+  const setViewingAsMemberId = useCallback((memberId: string | null) => {
+    const canViewAs = isPlatformSuperadmin || activeMemberRole === "owner" || activeMemberRole === "admin";
+    const validMember = memberId === null || data.tenantMembers.some((member) => member.id === memberId && member.tenant_id === activeTenantId && member.is_active);
+    if (!session || !canViewAs || !validMember) return;
+    setViewingAsMemberIdState(memberId);
+    setContactQueryState(EMPTY_CONTACT_QUERY);
+    setData((previous) => ({ ...previous, contacts: [], opportunities: [], conversations: [], messages: [] }));
+    setContactTotal(0);
+  }, [activeMemberRole, activeTenantId, data.tenantMembers, isPlatformSuperadmin, session]);
 
   const setContactQuery = useCallback((patch: Partial<ContactQuery>) => {
     setContactQueryState((previous) => ({ ...previous, ...patch, page: patch.page ?? (Object.keys(patch).some((key) => key !== "page") ? 0 : previous.page) }));
@@ -694,15 +786,23 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     return { stage, count: items.length, totalValue: items.reduce((sum, item) => sum + item.monetary_value, 0) };
   }), [data.opportunities, pipelineStages]);
 
+  const visibleMessages = useMemo(() => {
+    const assignedMemberId = assignedMemberForView(activeMemberRole, activeMemberId, viewingAsMemberId);
+    if (!assignedMemberId) return data.messages;
+    const conversationIds = new Set(data.conversations.map((item) => item.id));
+    return data.messages.filter((message) => conversationIds.has(message.conversation_id));
+  }, [activeMemberId, activeMemberRole, data.conversations, data.messages, viewingAsMemberId]);
+
   const value = useMemo<CrmContextValue>(() => ({
-    isHydrated, isLoadingData, isMutating, dataError, session, activeTenant, activeMember, userAccounts,
-    contacts: data.contacts, conversations: data.conversations, messages: data.messages, opportunities: data.opportunities,
+    isHydrated, isPlatformSuperadmin, isLoadingData, isMutating, dataError, session, activeTenant, activeMember, userAccounts,
+    availableTenants: tenants, viewingAsMemberId,
+    contacts: data.contacts, conversations: data.conversations, messages: visibleMessages, opportunities: data.opportunities,
     pipelines: data.pipelines, pipelineStages, members: data.tenantMembers,
     templates: data.whatsappTemplates, workflows: data.workflows, workflowEnrollments: data.workflowEnrollments,
     aiBots: data.aiBots, integrations: data.integrationsVault, customFields: data.customFieldDefinitions,
     customValues: data.customValues, notes: data.contactNotes, tasks: data.contactTasks, activities: data.contactActivities,
     dashboardStats, monthlyPerformance, pipelineSummary, contactTotal, contactPageSize: CONTACTS_PAGE_SIZE,
-    contactQuery, setContactQuery, login, register, logout, switchTenant, refreshData,
+    contactQuery, setContactQuery, login, register, logout, switchTenant, setViewingAsMemberId, refreshData, updateActiveTenantBranding,
     createContact: (input) => runMutation(async () => {
       const tenantId = requireTenant();
       const { error } = await createClient().from("contacts").insert({
@@ -883,6 +983,11 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       const { error } = await createClient().from("custom_field_definitions").insert({ ...input, tenant_id: requireTenant(), options: input.options ?? [] });
       if (error) throw new Error(error.message);
     }),
+    updateCustomField: (fieldId, input) => runMutation(async () => {
+      const { error } = await createClient().from("custom_field_definitions").update({ ...input, options: input.options ?? [] })
+        .eq("id", fieldId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
     deleteCustomField: (fieldId) => runMutation(async () => {
       const { error } = await createClient().from("custom_field_definitions").delete().eq("id", fieldId).eq("tenant_id", requireTenant());
       if (error) throw new Error(error.message);
@@ -897,9 +1002,9 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }),
   }), [
     activeMember, activeTenant, contactQuery, contactTotal, dashboardStats, data, dataError,
-    importContacts, isHydrated, isLoadingData, isMutating, login, logout, monthlyPerformance,
+    importContacts, isHydrated, isLoadingData, isMutating, isPlatformSuperadmin, login, logout, monthlyPerformance,
     pipelineStages, pipelineSummary, refreshData, register, requireTenant, runMutation, runMutationAsync, session, setContactQuery,
-    setIntegrationConnected, switchTenant, userAccounts,
+    setIntegrationConnected, setViewingAsMemberId, switchTenant, tenants, updateActiveTenantBranding, userAccounts, viewingAsMemberId, visibleMessages,
   ]);
 
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;

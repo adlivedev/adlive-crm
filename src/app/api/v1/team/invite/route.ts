@@ -21,7 +21,9 @@ export async function POST(request: Request) {
     await requireTenantAdmin(input.tenantId);
     const admin = createAdminClient();
     const appUrl = getAppOrigin(request);
-    const invited = await admin.auth.admin.inviteUserByEmail(input.email, { redirectTo: `${appUrl}/login` });
+    const { data: tenant, error: tenantError } = await admin.from("tenants").select("slug").eq("id", input.tenantId).maybeSingle();
+    if (tenantError || !tenant) return NextResponse.json({ error: "No se encontró el workspace para la invitación." }, { status: 400 });
+    const invited = await admin.auth.admin.inviteUserByEmail(input.email, { redirectTo: `${appUrl}/login?workspace=${encodeURIComponent(tenant.slug)}` });
     if (invited.error || !invited.data.user) {
       return NextResponse.json({ error: "No se pudo invitar al usuario. Verifica el correo." }, { status: 400 });
     }

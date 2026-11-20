@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { encryptVaultCredentials } from "@/shared/lib/crypto/vaultCipher";
-import { authErrorStatus, requireTenantAdmin, requireTenantMember } from "@/shared/lib/serverAuth";
+import { authErrorStatus, requireTenantAdmin, requireTenantAdminOrPlatformSuperadmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ const tenantSchema = z.string().uuid();
 export async function GET(request: Request) {
   try {
     const tenantId = tenantSchema.parse(new URL(request.url).searchParams.get("tenantId"));
-    await requireTenantMember(tenantId);
+    await requireTenantAdminOrPlatformSuperadmin(tenantId);
     const { data, error } = await createAdminClient().from("tenant_integrations_vault")
       .select("provider,is_connected,public_metadata,updated_at").eq("tenant_id", tenantId).like("provider", "ai_%");
     if (error) throw error;

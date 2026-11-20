@@ -244,7 +244,10 @@ export interface ContactActivity {
 
 export type WhatsAppTemplateCategory = "MARKETING" | "UTILITY" | "AUTHENTICATION";
 
-export type WhatsAppTemplateStatus = "APPROVED" | "DISABLED" | "REJECTED" | "PENDING";
+export type WhatsAppTemplateStatus =
+  | "APPROVED" | "DISABLED" | "REJECTED" | "PENDING"
+  | "PAUSED" | "FLAGGED" | "ARCHIVED" | "DELETED"
+  | "PENDING_DELETION" | "IN_APPEAL" | "LOCKED" | "LIMIT_EXCEEDED";
 
 export interface WhatsAppTemplate {
   id: string;
@@ -373,6 +376,8 @@ export interface TenantIntegrationVault {
   /** Solo existe en consultas de servidor; las APIs públicas nunca lo devuelven. */
   encrypted_credentials?: string;
   masked_key?: string | null;
+  /** Solo se devuelve a owner/admin para configurar el webhook de Meta. */
+  verify_token?: string | null;
   updated_at: string;
 }
 

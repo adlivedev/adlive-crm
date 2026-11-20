@@ -54,6 +54,22 @@ export function statusMeta(status: WhatsAppTemplateStatus): { label: string; ton
       return { label: "Rechazada", tone: "danger" };
     case "PENDING":
       return { label: "En revisión", tone: "warning" };
+    case "PAUSED":
+      return { label: "Pausada", tone: "warning" };
+    case "FLAGGED":
+      return { label: "En riesgo", tone: "warning" };
+    case "ARCHIVED":
+      return { label: "Archivada", tone: "neutral" };
+    case "DELETED":
+      return { label: "Eliminada", tone: "danger" };
+    case "PENDING_DELETION":
+      return { label: "Eliminación pendiente", tone: "warning" };
+    case "IN_APPEAL":
+      return { label: "En apelación", tone: "warning" };
+    case "LOCKED":
+      return { label: "Bloqueada", tone: "neutral" };
+    case "LIMIT_EXCEEDED":
+      return { label: "Límite excedido", tone: "danger" };
   }
 }
 

@@ -26,8 +26,7 @@ async function generateWithOpenAiCompatible(
   history: ChatTurn[],
 ): Promise<string> {
   const isOpenAi = provider === "openai";
-  const model = (isOpenAi ? process.env.OPENAI_MODEL : process.env.XAI_MODEL)?.trim()
-    || (isOpenAi ? "gpt-4o-mini" : "grok-3-mini");
+  const model = isOpenAi ? "gpt-4o-mini" : "grok-3-mini";
   const json = await providerFetch(isOpenAi ? "https://api.openai.com/v1/chat/completions" : "https://api.x.ai/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
@@ -42,7 +41,7 @@ async function generateWithAnthropic(apiKey: string, systemPrompt: string, histo
     method: "POST",
     headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: process.env.ANTHROPIC_MODEL?.trim() || "claude-haiku-4-5",
+      model: "claude-haiku-4-5",
       max_tokens: 500,
       temperature: 0.3,
       system: systemPrompt,
@@ -54,7 +53,7 @@ async function generateWithAnthropic(apiKey: string, systemPrompt: string, histo
 }
 
 async function generateWithGemini(apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
-  const model = process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash";
+  const model = "gemini-2.5-flash";
   const json = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
@@ -82,10 +81,12 @@ async function generateBotText(provider: SupportedProvider, tenantId: string, sy
 }
 
 /** Procesa un inbound ya persistido. La columna in_reply_to_message_id evita respuestas duplicadas. */
-export async function processAiBotReply(waMessageId: string): Promise<void> {
+export async function processAiBotReply(waMessageId: string, expectedTenantId?: string): Promise<void> {
   const admin = createAdminClient();
-  const { data: inbound, error: inboundError } = await admin.from("messages")
-    .select("id,tenant_id,conversation_id").eq("wa_message_id", waMessageId).eq("direction", "inbound").maybeSingle();
+  let inboundQuery = admin.from("messages")
+    .select("id,tenant_id,conversation_id").eq("wa_message_id", waMessageId).eq("direction", "inbound");
+  if (expectedTenantId) inboundQuery = inboundQuery.eq("tenant_id", expectedTenantId);
+  const { data: inbound, error: inboundError } = await inboundQuery.maybeSingle();
   if (inboundError) throw inboundError;
   if (!inbound) return;
 
@@ -95,7 +96,7 @@ export async function processAiBotReply(waMessageId: string): Promise<void> {
   if (conversation.handler_mode !== "bot") return;
 
   const [{ data: contact, error: contactError }, { data: bot, error: botError }] = await Promise.all([
-    admin.from("contacts").select("id,phone_e164,opt_out_marketing").eq("id", conversation.contact_id).single(),
+    admin.from("contacts").select("id,phone_e164,opt_out_marketing").eq("id", conversation.contact_id).eq("tenant_id", inbound.tenant_id).single(),
     admin.from("ai_bots").select("provider,system_prompt").eq("tenant_id", inbound.tenant_id).eq("is_active", true).order("created_at").limit(1).maybeSingle(),
   ]);
   if (contactError) throw contactError;
@@ -105,7 +106,8 @@ export async function processAiBotReply(waMessageId: string): Promise<void> {
   if (!parsedProvider.success) return;
 
   const { data: historyRows, error: historyError } = await admin.from("messages")
-    .select("direction,body,msg_type").eq("conversation_id", conversation.id).order("created_at", { ascending: false }).limit(12);
+    .select("direction,body,msg_type").eq("conversation_id", conversation.id).eq("tenant_id", inbound.tenant_id)
+    .order("created_at", { ascending: false }).limit(12);
   if (historyError) throw historyError;
   const history: ChatTurn[] = (historyRows ?? []).reverse().flatMap((message) => message.body && ["text", "system"].includes(message.msg_type)
     ? [{ role: message.direction === "inbound" ? "user" : "assistant", content: message.body.slice(0, 4000) }]
@@ -128,9 +130,9 @@ export async function processAiBotReply(waMessageId: string): Promise<void> {
 
   try {
     const answer = await generateBotText(parsedProvider.data, inbound.tenant_id, bot.system_prompt, history);
-    await admin.from("messages").update({ body: answer }).eq("id", pending.id);
+    await admin.from("messages").update({ body: answer }).eq("id", pending.id).eq("tenant_id", inbound.tenant_id);
     const waMessageIdSent = await sendMetaText(inbound.tenant_id, contact.phone_e164, answer);
-    await admin.from("messages").update({ wa_message_id: waMessageIdSent, status: "sent", error_reason: null }).eq("id", pending.id);
+    await admin.from("messages").update({ wa_message_id: waMessageIdSent, status: "sent", error_reason: null }).eq("id", pending.id).eq("tenant_id", inbound.tenant_id);
     const now = new Date().toISOString();
     await admin.from("conversations").update({
       last_message_at: now,
@@ -138,12 +140,12 @@ export async function processAiBotReply(waMessageId: string): Promise<void> {
       last_message_media_type: "text",
       needs_reply: false,
       unread_count: 0,
-    }).eq("id", conversation.id);
+    }).eq("id", conversation.id).eq("tenant_id", inbound.tenant_id);
   } catch (error) {
     await admin.from("messages").update({
       status: "failed",
       error_reason: error instanceof Error ? error.message.slice(0, 500) : "No se pudo generar la respuesta del bot.",
-    }).eq("id", pending.id);
+    }).eq("id", pending.id).eq("tenant_id", inbound.tenant_id);
     throw error;
   }
 }

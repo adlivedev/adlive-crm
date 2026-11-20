@@ -32,8 +32,8 @@ export function BotsView() {
         <p className="text-sm leading-6 text-adlive-text-main"><strong className="font-semibold">Tus API keys se guardan cifradas en el servidor:</strong> nunca se envían de vuelta al navegador ni se muestran después de guardarlas. El almacenamiento usa AES-256-GCM.</p>
       </div>
       <section aria-labelledby="ai-providers-title">
-        <h2 id="ai-providers-title" className="mb-3 text-base font-semibold text-adlive-text-main">Proveedores de IA</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5" role="list">{AI_PROVIDER_SPECS.map((spec) => <div key={spec.provider} role="listitem"><AiProviderCard spec={spec} onKeySaved={handleKeySaved} /></div>)}</div>
+        <h2 id="ai-providers-title" className="mb-3 text-base font-semibold text-adlive-text-main">Proveedores de IA de este workspace</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4" role="list">{AI_PROVIDER_SPECS.filter((spec) => spec.provider !== "integrated").map((spec) => <div key={spec.provider} role="listitem"><AiProviderCard spec={spec} onKeySaved={handleKeySaved} /></div>)}</div>
       </section>
       <section aria-labelledby="product-bots-title">
         <h2 id="product-bots-title" className="mb-3 text-base font-semibold text-adlive-text-main">Bots por producto</h2>

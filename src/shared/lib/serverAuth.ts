@@ -28,8 +28,39 @@ export async function requireTenantMember(tenantId: string) {
   return { ...context, member: member as TenantMember };
 }
 
+/** Miembro activo o superadmin de plataforma para lecturas de servidor. */
+export async function requireTenantMemberOrPlatformSuperadmin(tenantId: string) {
+  const context = await requireUser();
+  const { data: isSuperadmin, error: superadminError } = await context.supabase.rpc("is_platform_superadmin");
+  if (!superadminError && isSuperadmin === true) return { ...context, member: null };
+
+  const { data: member, error } = await context.supabase
+    .from("tenant_members").select("*").eq("tenant_id", tenantId)
+    .eq("user_id", context.user.id).eq("is_active", true).maybeSingle();
+  if (error || !member) throw new Error("FORBIDDEN");
+  return { ...context, member: member as TenantMember };
+}
+
 export async function requireTenantAdmin(tenantId: string) {
   const context = await requireUser();
+  const { data: member, error } = await context.supabase
+    .from("tenant_members")
+    .select("*")
+    .eq("tenant_id", tenantId)
+    .eq("user_id", context.user.id)
+    .eq("is_active", true)
+    .in("role", ["owner", "admin"])
+    .maybeSingle();
+  if (error || !member) throw new Error("FORBIDDEN");
+  return { ...context, member: member as TenantMember };
+}
+
+/** Owner/admin del tenant o superadmin, sin convertirlo en dueño de clientes. */
+export async function requireTenantAdminOrPlatformSuperadmin(tenantId: string) {
+  const context = await requireUser();
+  const { data: isSuperadmin, error: superadminError } = await context.supabase.rpc("is_platform_superadmin");
+  if (!superadminError && isSuperadmin === true) return { ...context, member: null };
+
   const { data: member, error } = await context.supabase
     .from("tenant_members")
     .select("*")

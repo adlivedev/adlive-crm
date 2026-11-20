@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  requireTenantMember: vi.fn(),
+  requireTenantAdminOrPlatformSuperadmin: vi.fn(),
   requireTenantAdmin: vi.fn(),
   createAdminClient: vi.fn(),
   encryptVaultCredentials: vi.fn(),
 }));
 
 vi.mock("@/shared/lib/serverAuth", () => ({
-  requireTenantMember: mocks.requireTenantMember,
+  requireTenantAdminOrPlatformSuperadmin: mocks.requireTenantAdminOrPlatformSuperadmin,
   requireTenantAdmin: mocks.requireTenantAdmin,
   authErrorStatus: (error: unknown) => {
     const code = error instanceof Error ? error.message : "";
@@ -23,7 +23,7 @@ import { GET, PUT } from "@/app/api/v1/integrations/route";
 const tenantId = "11111111-1111-4111-8111-111111111111";
 
 beforeEach(() => {
-  mocks.requireTenantMember.mockRejectedValue(new Error("FORBIDDEN"));
+  mocks.requireTenantAdminOrPlatformSuperadmin.mockRejectedValue(new Error("FORBIDDEN"));
   mocks.requireTenantAdmin.mockRejectedValue(new Error("FORBIDDEN"));
 });
 
@@ -33,7 +33,7 @@ describe("TC-002 — autorización de integraciones por tenant", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "No autorizado." });
-    expect(mocks.requireTenantMember).toHaveBeenCalledWith(tenantId);
+    expect(mocks.requireTenantAdminOrPlatformSuperadmin).toHaveBeenCalledWith(tenantId);
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 

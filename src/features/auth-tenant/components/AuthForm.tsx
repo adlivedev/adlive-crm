@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useState, type FormEvent } from "react";
 
@@ -7,21 +8,20 @@ import { BrandLogo } from "@/shared/components/BrandLogo";
 import { TenantThemeProvider } from "@/shared/components/TenantThemeProvider";
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
-import { createClient } from "@/shared/lib/supabase/client";
 import { useCrm } from "@/shared/services/crmStore";
-import type { Tenant } from "@/shared/types/database";
+
+import { useWorkspaceBrand } from "./useWorkspaceBrand";
 
 export type AuthTab = "login" | "register";
 export interface AuthFormProps { initialTab: AuthTab }
-type WorkspaceBrand = Pick<Tenant, "name" | "slug" | "branding" | "status">;
 
 function AuthFormContent({ initialTab }: AuthFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isHydrated, session, login, register, dataError } = useCrm();
   const workspaceSlug = searchParams.get("workspace")?.trim().toLowerCase() ?? "";
+  const workspaceTenant = useWorkspaceBrand(workspaceSlug);
   const publicSignup = process.env.NEXT_PUBLIC_ALLOW_PUBLIC_SIGNUP === "true";
-  const [workspaceTenant, setWorkspaceTenant] = useState<WorkspaceBrand | null>(null);
   const [tab, setTab] = useState<AuthTab>(publicSignup ? initialTab : "login");
   const [agencyName, setAgencyName] = useState("");
   const [email, setEmail] = useState("");
@@ -35,31 +35,12 @@ function AuthFormContent({ initialTab }: AuthFormProps) {
     if (isHydrated && session) router.replace("/dashboard");
   }, [isHydrated, session, router]);
 
-  useEffect(() => {
-    if (!workspaceSlug) {
-      setWorkspaceTenant(null);
-      return;
-    }
-    const controller = new AbortController();
-    void fetch(`/api/v1/public/workspace?slug=${encodeURIComponent(workspaceSlug)}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        return await response.json() as { workspace: WorkspaceBrand };
-      })
-      .then((result) => setWorkspaceTenant(result?.workspace ?? null))
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setWorkspaceTenant(null);
-      });
-    return () => controller.abort();
-  }, [workspaceSlug]);
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
     setIsError(false);
     setIsSubmitting(true);
-    const result = isRegister ? await register(agencyName, email, password) : await login(email, password);
+    const result = isRegister ? await register(agencyName, email, password) : await login(email, password, workspaceSlug || null);
     setIsSubmitting(false);
     if (!result.ok) {
       setIsError(true);
@@ -69,28 +50,13 @@ function AuthFormContent({ initialTab }: AuthFormProps) {
     if (isRegister) {
       setTab("login");
       setPassword("");
+      if (result.loginPath) router.replace(result.loginPath);
       setMessage(result.requiresEmailConfirmation
         ? "Cuenta creada. Revisa tu correo para confirmarla y luego inicia sesión."
         : "Cuenta creada. Ya puedes iniciar sesión.");
       return;
     }
     router.push("/dashboard");
-  }
-
-  async function handleResetPassword() {
-    if (!email.trim()) {
-      setIsError(true);
-      setMessage("Escribe tu correo para enviarte el enlace de recuperación.");
-      return;
-    }
-    setIsSubmitting(true);
-    setIsError(false);
-    const { error } = await createClient().auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: `${window.location.origin}/login`,
-    });
-    setIsSubmitting(false);
-    setIsError(Boolean(error));
-    setMessage(error ? "No se pudo enviar el enlace de recuperación." : "Si el correo está registrado, recibirás un enlace para restablecer la contraseña.");
   }
 
   return (
@@ -116,7 +82,7 @@ function AuthFormContent({ initialTab }: AuthFormProps) {
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between gap-3">
                 <label htmlFor="auth-password" className="text-sm font-medium text-adlive-text-main">Contraseña</label>
-                {!isRegister ? <button type="button" disabled={isSubmitting} onClick={() => void handleResetPassword()} className="cursor-pointer text-right text-xs font-medium text-adlive-primary hover:underline disabled:opacity-50">¿Olvidaste tu contraseña?</button> : null}
+                {!isRegister ? <Link href={`/recuperar-contrasena${workspaceSlug ? `?workspace=${encodeURIComponent(workspaceSlug)}` : ""}`} className="cursor-pointer text-right text-xs font-medium text-adlive-primary hover:underline">¿Olvidaste tu contraseña?</Link> : null}
               </div>
               <input id="auth-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={isRegister ? "new-password" : "current-password"} required minLength={isRegister ? 12 : 6}
                 className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20" />

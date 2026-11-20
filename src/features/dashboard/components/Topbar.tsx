@@ -40,12 +40,15 @@ interface TopbarProps {
 export function Topbar({ onOpenMenu }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, logout, activeTenant } = useCrm();
+  const { session, logout, activeTenant, isPlatformSuperadmin } = useCrm();
   const meta = resolveViewMeta(pathname, activeTenant?.name ?? "CRM");
 
   async function handleLogout() {
+    const loginPath = !isPlatformSuperadmin && activeTenant?.slug
+      ? `/login?workspace=${encodeURIComponent(activeTenant.slug)}`
+      : "/login";
     await logout();
-    router.replace("/login");
+    router.replace(loginPath);
   }
 
   return (
@@ -67,9 +70,7 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-        <div className="hidden w-52 md:block xl:w-64">
-          <AccountSwitcher placement="topbar" />
-        </div>
+        {isPlatformSuperadmin ? <div className="hidden w-52 md:block xl:w-64"><AccountSwitcher placement="topbar" /></div> : null}
         <span className="hidden max-w-56 truncate text-sm text-adlive-text-muted lg:block" title={session?.email}>
           {session?.email}
         </span>

@@ -25,7 +25,9 @@ export async function POST(request: Request) {
   const input = parsed.data;
   const admin = createAdminClient();
   const appUrl = getAppOrigin(request);
-  const authResult = await admin.auth.signUp({ email: input.email, password: input.password, options: { emailRedirectTo: `${appUrl}/login` } });
+  const slug = `${slugify(input.agencyName)}-${crypto.randomUUID().slice(0, 8)}`;
+  const loginPath = `${appUrl}/login?workspace=${encodeURIComponent(slug)}`;
+  const authResult = await admin.auth.signUp({ email: input.email, password: input.password, options: { emailRedirectTo: loginPath } });
   if (authResult.error || !authResult.data.user) {
     return NextResponse.json({ error: "No se pudo registrar el usuario. Es posible que el correo ya esté registrado." }, { status: 400 });
   }
@@ -33,7 +35,6 @@ export async function POST(request: Request) {
   if (authUser.identities?.length === 0) {
     return NextResponse.json({ error: "Este correo ya está registrado. Inicia sesión o recupera tu contraseña." }, { status: 409 });
   }
-  const slug = `${slugify(input.agencyName)}-${crypto.randomUUID().slice(0, 8)}`;
   const { error } = await admin.rpc("provision_tenant", {
     p_name: input.agencyName,
     p_slug: slug,

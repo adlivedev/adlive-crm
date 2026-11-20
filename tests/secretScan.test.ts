@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const secrets = ["SUPABASE_SERVICE_ROLE_KEY", "ENCRYPTION_MASTER_KEY", "META_APP_SECRET", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY"];
+const secrets = ["SUPABASE_SERVICE_ROLE_KEY", "ENCRYPTION_MASTER_KEY", "META_APP_SECRET", "WHATSAPP_VERIFY_TOKEN", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "XAI_API_KEY", "GEMINI_API_KEY"];
 const extensions = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
 function sourceFiles(directory: string): string[] {
@@ -67,6 +67,14 @@ describe("TC-020 — análisis estático de credenciales", () => {
       return consoleCalls(source).some((call) => secrets.some((secret) => call.includes(secret)));
     });
     expect(offenders).toEqual([]);
+  });
+
+  it("ninguna parte de la aplicación depende de secretos Meta globales", () => {
+    const globalMetaSecret = /process\.env\.(?:META_APP_SECRET|WHATSAPP_VERIFY_TOKEN)\b/;
+    const offenders = files.filter((file) => globalMetaSecret.test(readFileSync(file, "utf8")));
+    expect(offenders).toEqual([]);
+    const envExample = readFileSync(path.join(process.cwd(), ".env.example"), "utf8");
+    expect(envExample).not.toMatch(/^(?:META_APP_SECRET|WHATSAPP_VERIFY_TOKEN)=/m);
   });
 
   it("la bóveda y los clientes administrativos son explícitamente server-only", () => {

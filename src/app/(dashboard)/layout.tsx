@@ -6,6 +6,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Sidebar } from "@/features/dashboard/components/Sidebar";
 import { Topbar } from "@/features/dashboard/components/Topbar";
 import { TenantThemeProvider } from "@/shared/components/TenantThemeProvider";
+import { canAgentAccessPath } from "@/shared/lib/auth/roleAccess";
 import { useCrm } from "@/shared/services/crmStore";
 
 function DashboardSkeleton() {
@@ -26,12 +27,17 @@ function DashboardSkeleton() {
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const { isHydrated, session, dataError, isLoadingData, isMutating, activeMember } = useCrm();
+  const { isHydrated, session, dataError, isLoadingData, isMutating, activeMember, isPlatformSuperadmin } = useCrm();
   const [menuOpen, setMenuOpen] = useState(false);
+  const isRestrictedAgent = !isPlatformSuperadmin && activeMember?.role === "agent" && !canAgentAccessPath(pathname);
 
   useEffect(() => {
     if (isHydrated && !session) router.replace("/login");
   }, [isHydrated, session, router]);
+
+  useEffect(() => {
+    if (isHydrated && session && isRestrictedAgent) router.replace("/dashboard");
+  }, [isHydrated, isRestrictedAgent, router, session]);
 
   useEffect(() => setMenuOpen(false), [pathname]);
 
@@ -49,8 +55,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     };
   }, [menuOpen]);
 
-  if (!isHydrated || !session) return <DashboardSkeleton />;
-  if (!activeMember) {
+  if (!isHydrated || !session || isRestrictedAgent) return <DashboardSkeleton />;
+  if (!activeMember && !isPlatformSuperadmin) {
     return <main className="flex min-h-screen items-center justify-center bg-adlive-canvas-bg p-6 text-center text-sm text-adlive-danger">{dataError ?? "No se encontró una membresía activa."}</main>;
   }
 

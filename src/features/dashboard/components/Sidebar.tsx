@@ -20,6 +20,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { BrandLogo } from "@/shared/components/BrandLogo";
+import { canAgentAccessPath } from "@/shared/lib/auth/roleAccess";
+import { useCrm } from "@/shared/services/crmStore";
 
 import { AccountSwitcher } from "./AccountSwitcher";
 
@@ -50,6 +52,9 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname();
+  const { activeMember, isPlatformSuperadmin } = useCrm();
+  const isAgent = !isPlatformSuperadmin && activeMember?.role === "agent";
+  const visibleNavItems = isAgent ? NAV_ITEMS.filter((item) => canAgentAccessPath(item.href)) : NAV_ITEMS;
 
   return (
     <aside
@@ -77,7 +82,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       <nav aria-label="Navegación principal" className="flex-1 overflow-y-auto px-4 py-2">
         <ul className="flex flex-col gap-1">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
@@ -103,7 +108,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
       <footer className="border-t border-white/10 px-5 py-4">
         <p className="text-xs leading-5 text-white/50">
-          Conecta WhatsApp, Meta Ads y TikTok Ads desde Integraciones.
+          {isAgent ? "Gestiona tus contactos, conversaciones y oportunidades asignadas." : "Conecta WhatsApp, Meta Ads y TikTok Ads desde Integraciones."}
         </p>
         <p className="mt-2 flex items-center gap-1.5 text-xs text-white/40">
           <Shuffle className="h-3 w-3" aria-hidden />

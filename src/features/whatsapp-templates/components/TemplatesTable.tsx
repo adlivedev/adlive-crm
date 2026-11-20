@@ -17,15 +17,16 @@ import { bodyExcerpt, statusMeta } from "./templateUtils";
 export interface TemplatesTableProps {
   templates: WhatsAppTemplate[];
   onDelete: (templateId: string) => void;
+  readOnly?: boolean;
 }
 
-export function TemplatesTable({ templates, onDelete }: TemplatesTableProps) {
+export function TemplatesTable({ templates, onDelete, readOnly = false }: TemplatesTableProps) {
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   if (templates.length === 0) {
     return (
       <p className="rounded-2xl border border-dashed border-adlive-border bg-white px-6 py-10 text-center text-sm text-adlive-text-muted">
-        No hay plantillas registradas. Sincroniza con Meta Cloud API o crea la primera con «Crear plantilla».
+        {readOnly ? "No hay plantillas disponibles para este workspace." : "No hay plantillas registradas. Sincroniza con Meta Cloud API o crea la primera con «Crear plantilla»."}
       </p>
     );
   }
@@ -70,7 +71,7 @@ export function TemplatesTable({ templates, onDelete }: TemplatesTableProps) {
                   <Badge tone={status.tone}>{status.label}</Badge>
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  {confirming ? (
+                  {readOnly ? <span className="text-xs text-adlive-text-muted">Solo lectura</span> : confirming ? (
                     <span className="inline-flex items-center gap-2">
                       <button
                         type="button"

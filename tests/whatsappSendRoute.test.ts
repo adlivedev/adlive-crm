@@ -97,3 +97,24 @@ describe("TC-009 / TC-012 — bloqueos del Route Handler de WhatsApp", () => {
     expect(mocks.sendMetaTemplate).not.toHaveBeenCalled();
   });
 });
+
+
+describe("TC-WA-SEND-TENANT — credenciales de envío por empresa", () => {
+  it("envía usando el tenant de la conversación, sin secretos globales", async () => {
+    arrangeContact({ opt_out_marketing: false }, now.toISOString());
+    const query: Record<string, unknown> = {};
+    Object.assign(query, {
+      insert: vi.fn(() => query), select: vi.fn(() => query),
+      single: vi.fn(async () => ({ data: { id: "pending-1" }, error: null })),
+      update: vi.fn(() => query), eq: vi.fn(() => query),
+    });
+    mocks.createAdminClient.mockReturnValue({ from: vi.fn(() => query) });
+    mocks.sendMetaText.mockResolvedValue("wamid-out-1");
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(200);
+    expect(mocks.sendMetaText).toHaveBeenCalledWith("tenant-1", "573201234567", "Mensaje de prueba");
+    expect(mocks.sendMetaTemplate).not.toHaveBeenCalled();
+  });
+});

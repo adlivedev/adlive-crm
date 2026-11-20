@@ -35,10 +35,22 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {
+    const embeddableHeaders = [
+      ...securityHeaders.filter(({ key }) => key !== "X-Frame-Options"),
+      { key: "Content-Security-Policy", value: "frame-ancestors *" },
+    ];
     return [
       {
-        source: "/:path*",
+        source: "/((?!l/|embed/).*)",
         headers: securityHeaders,
+      },
+      {
+        source: "/l/:path*",
+        headers: embeddableHeaders,
+      },
+      {
+        source: "/embed/:path*",
+        headers: embeddableHeaders,
       },
     ];
   },

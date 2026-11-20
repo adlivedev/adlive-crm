@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { authErrorStatus, requireTenantAdmin } from "@/shared/lib/serverAuth";
+import { authErrorStatus, requireTenantAdminOrPlatformSuperadmin } from "@/shared/lib/serverAuth";
 import { brandingSchema } from "@/shared/lib/validation/branding";
 
 const updateSchema = z.object({
@@ -14,7 +14,7 @@ export async function PATCH(request: Request) {
     const parsed = updateSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Configuración de marca inválida." }, { status: 400 });
 
-    const { supabase } = await requireTenantAdmin(parsed.data.tenantId);
+    const { supabase } = await requireTenantAdminOrPlatformSuperadmin(parsed.data.tenantId);
     const { data, error } = await supabase
       .from("tenants")
       .update({ branding: parsed.data.branding })
