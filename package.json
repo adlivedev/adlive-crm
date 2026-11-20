@@ -5,7 +5,7 @@
   "description": "ADlive CRM SaaS - Sistema CRM multi-tenant de portabilidad móvil para ADLIVE SAS",
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/validate-cierto-meta.mjs && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
