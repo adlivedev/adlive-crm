@@ -38,7 +38,7 @@ function slugify(value: string): string {
 interface CreateTenantModalProps {
   open: boolean;
   onClose: () => void;
-  onCreated: (warning?: string) => void;
+  onCreated: (info: { warning?: string; accessUrl?: string }) => void;
 }
 
 export function CreateTenantModal({ open, onClose, onCreated }: CreateTenantModalProps) {
@@ -118,8 +118,9 @@ export function CreateTenantModal({ open, onClose, onCreated }: CreateTenantModa
           branding: { ...branding, logo_url: null, logo_dark_url: null },
         }),
       });
-      const result = await response.json() as { tenantId?: string; error?: string };
+      const result = await response.json() as { tenantId?: string; loginPath?: string; error?: string };
       if (!response.ok || !result.tenantId) throw new Error(result.error ?? "No se pudo crear el workspace.");
+      const accessUrl = result.loginPath ? `${window.location.origin}${result.loginPath}` : undefined;
 
       const uploadErrors: string[] = [];
       if (logoFile) {
@@ -130,7 +131,10 @@ export function CreateTenantModal({ open, onClose, onCreated }: CreateTenantModa
         try { await uploadLogo(result.tenantId, "logo_dark_url", darkLogoFile); }
         catch (uploadError) { uploadErrors.push(uploadError instanceof Error ? uploadError.message : "Falló el logo oscuro."); }
       }
-      onCreated(uploadErrors.length > 0 ? `Workspace creado, pero algunos logos no se subieron: ${uploadErrors.join(" ")} Puedes reintentarlo desde Editar.` : undefined);
+      onCreated({
+        warning: uploadErrors.length > 0 ? `Workspace creado, pero algunos logos no se subieron: ${uploadErrors.join(" ")} Puedes reintentarlo desde Editar.` : undefined,
+        accessUrl,
+      });
       setName("");
       setSlug("");
       setSlugEdited(false);

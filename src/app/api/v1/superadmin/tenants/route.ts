@@ -33,6 +33,18 @@ function escapeLink(value: string): string {
   return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/**
+ * Busca una cuenta de autenticación por correo. Nunca crea, renombra ni
+ * elimina cuentas: la reutilización de un dueño entre varios workspaces es
+ * un caso válido y no debe fallar ni destruir cuentas existentes.
+ */
+async function findAuthUserByEmail(admin: ReturnType<typeof createAdminClient>, email: string) {
+  const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) return null;
+  const normalized = email.trim().toLowerCase();
+  return data.users.find((user) => user.email?.trim().toLowerCase() === normalized) ?? null;
+}
+
 export async function GET() {
   try {
     const { supabase } = await requirePlatformSuperadmin();
@@ -54,17 +66,25 @@ export async function POST(request: Request) {
     const admin = createAdminClient();
     const appUrl = getAppOrigin(request);
     const hasTemporaryPassword = Boolean(input.temporaryPassword);
-    const authResult = await admin.auth.admin.createUser({
-      email: input.adminEmail,
-      password: input.temporaryPassword ?? randomBytes(32).toString("base64url"),
-      email_confirm: true,
-    });
 
-    if (authResult.error || !authResult.data.user) {
-      return NextResponse.json({ error: "No se pudo crear o invitar al administrador. Verifica que el correo no esté registrado." }, { status: 400 });
+    /* Reutiliza la cuenta existente si el correo ya está registrado: un mismo
+       dueño puede operar varios workspaces. Solo las cuentas creadas en esta
+       petición son elegibles para rollback destrutivo. */
+    const existingUser = await findAuthUserByEmail(admin, input.adminEmail);
+    let authUser = existingUser;
+    let createdUserId: string | null = null;
+    if (!authUser) {
+      const authResult = await admin.auth.admin.createUser({
+        email: input.adminEmail,
+        password: input.temporaryPassword ?? randomBytes(32).toString("base64url"),
+        email_confirm: true,
+      });
+      if (authResult.error || !authResult.data.user) {
+        return NextResponse.json({ error: "No se pudo crear o invitar al administrador. Verifica el correo." }, { status: 400 });
+      }
+      authUser = authResult.data.user;
+      createdUserId = authUser.id;
     }
-
-    const authUser = authResult.data.user;
     const { data: tenantId, error } = await admin.rpc("provision_tenant", {
       p_name: input.name,
       p_slug: input.slug,
@@ -74,16 +94,19 @@ export async function POST(request: Request) {
     });
 
     if (error || !tenantId) {
-      await admin.auth.admin.deleteUser(authUser.id);
+      if (createdUserId) await admin.auth.admin.deleteUser(createdUserId);
       return NextResponse.json({ error: "No se pudo aprovisionar el workspace. Revisa que el slug sea único." }, { status: 400 });
     }
 
     const rollbackNewWorkspace = async () => {
       await admin.from("tenants").delete().eq("id", tenantId);
-      await admin.auth.admin.deleteUser(authUser.id);
+      if (createdUserId) await admin.auth.admin.deleteUser(createdUserId);
     };
 
-    if (!hasTemporaryPassword) {
+    /* Con una cuenta recién creada se puede entregar contraseña temporal. Con
+       una cuenta existente jamás se cambia su contraseña: enviamos magiclink. */
+    const sendInvitation = !createdUserId || !hasTemporaryPassword;
+    if (sendInvitation) {
       const redirectTo = `${appUrl}/login?workspace=${input.slug}`;
       const linkResult = await admin.auth.admin.generateLink({
         type: "magiclink",
@@ -113,7 +136,8 @@ export async function POST(request: Request) {
     return NextResponse.json({
       tenantId,
       loginPath: `/login?workspace=${input.slug}`,
-      access: hasTemporaryPassword ? "temporary_password" : "email_invitation",
+      access: createdUserId && hasTemporaryPassword ? "temporary_password" : "email_invitation",
+      reusedAccount: !createdUserId,
     }, { status: 201 });
   } catch (error) {
     const status = authErrorStatus(error);
@@ -141,17 +165,62 @@ export async function PATCH(request: Request) {
 
       const owner = ownerResult.data;
       if (owner.email.toLowerCase() !== input.adminEmail) {
-        if (owner.user_id) {
-          const authUpdate = await admin.auth.admin.updateUserById(owner.user_id, {
+        /* Reasigna la propiedad del workspace sin tocar la cuenta de
+           autenticación anterior: renombrar el correo de un usuario global
+           bloquea sus otros accesos y fue la causa de la pérdida de cuentas. */
+        const target = await findAuthUserByEmail(admin, input.adminEmail);
+        let targetUserId = target?.id ?? null;
+        let createdUserId: string | null = null;
+        if (!targetUserId) {
+          const created = await admin.auth.admin.createUser({
             email: input.adminEmail,
+            password: randomBytes(32).toString("base64url"),
             email_confirm: true,
           });
-          if (authUpdate.error) return NextResponse.json({ error: "No se pudo actualizar el correo de autenticación del propietario." }, { status: 400 });
+          if (created.error || !created.data.user) {
+            return NextResponse.json({ error: "No se pudo crear la cuenta del nuevo propietario. Verifica el correo." }, { status: 400 });
+          }
+          targetUserId = created.data.user.id;
+          createdUserId = targetUserId;
         }
-        const memberUpdate = await admin.from("tenant_members").update({ email: input.adminEmail }).eq("id", owner.id);
+
+        const previous = { user_id: owner.user_id, email: owner.email };
+        const memberUpdate = await admin.from("tenant_members")
+          .update({ user_id: targetUserId, email: input.adminEmail })
+          .eq("id", owner.id);
         if (memberUpdate.error) {
-          if (owner.user_id) await admin.auth.admin.updateUserById(owner.user_id, { email: owner.email, email_confirm: true });
+          if (createdUserId) await admin.auth.admin.deleteUser(createdUserId);
           return NextResponse.json({ error: "No se pudo actualizar el propietario en el workspace." }, { status: 500 });
+        }
+
+        if (createdUserId) {
+          const tenantResult = await admin.from("tenants").select("slug,name").eq("id", input.tenantId).maybeSingle();
+          const tenantSlug = tenantResult.data?.slug ?? "";
+          const redirectTo = `${getAppOrigin(request)}/login?workspace=${encodeURIComponent(tenantSlug)}`;
+          const linkResult = await admin.auth.admin.generateLink({
+            type: "magiclink",
+            email: input.adminEmail,
+            options: { redirectTo },
+          });
+          const actionLink = linkResult.data.properties?.action_link;
+          if (linkResult.error || !actionLink) {
+            await admin.from("tenant_members").update(previous).eq("id", owner.id);
+            await admin.auth.admin.deleteUser(createdUserId);
+            return NextResponse.json({ error: "No se pudo generar la invitación del nuevo propietario. Inténtalo de nuevo." }, { status: 400 });
+          }
+          try {
+            await sendWorkspaceEmail({
+              tenantId: input.tenantId,
+              to: input.adminEmail,
+              subject: `Invitación a ${tenantResult.data?.name ?? "tu empresa"} · ADlive CRM`,
+              html: `<p>Has sido invitado como propietario de un workspace en ADlive CRM.</p><p style="text-align:center;margin:28px 0;"><a href="${escapeLink(actionLink)}" style="display:inline-block;padding:12px 22px;border-radius:10px;background:#4F46E5;color:#FFFFFF;text-decoration:none;font-weight:bold;">Aceptar invitación</a></p><p>Si no esperabas esta invitación, puedes ignorar este correo.</p>`,
+              text: `Acepta tu invitación a ADlive CRM: ${actionLink}`,
+            });
+          } catch {
+            await admin.from("tenant_members").update(previous).eq("id", owner.id);
+            await admin.auth.admin.deleteUser(createdUserId);
+            return NextResponse.json({ error: "No se pudo enviar la invitación por SMTP global. Configura y prueba el correo antes de cambiar el propietario." }, { status: 502 });
+          }
         }
       }
     }
