@@ -15,6 +15,7 @@ import {
 import { assignedMemberForView, contactMemberForView } from "@/shared/lib/auth/roleAccess";
 import { ACTIVE_TENANT_COOKIE } from "@/shared/lib/auth/workspaceAccess";
 import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
+import { establishSessionFromUrl } from "@/shared/lib/supabase/urlSession";
 import { subscribeToInboxRealtime } from "@/shared/services/inboxRealtimeService";
 import type {
   AiBot,
@@ -393,7 +394,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     }
     const supabase = createClient();
     let mounted = true;
-    void supabase.auth.getUser().then(({ data: authData, error }) => {
+    void (async () => {
+      await establishSessionFromUrl(supabase);
+      if (!mounted) return;
+      const { data: authData, error } = await supabase.auth.getUser();
       if (!mounted) return;
       if (error || !authData.user) {
         clearSession();
@@ -401,7 +405,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         return;
       }
       void loadMemberships(authData.user);
-    });
+    })();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
       window.setTimeout(() => {
         if (!mounted) return;

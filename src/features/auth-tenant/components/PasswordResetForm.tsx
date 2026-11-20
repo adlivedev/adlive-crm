@@ -8,6 +8,7 @@ import { BrandLogo } from "@/shared/components/BrandLogo";
 import { TenantThemeProvider } from "@/shared/components/TenantThemeProvider";
 import { Button } from "@/shared/components/ui/Button";
 import { createClient } from "@/shared/lib/supabase/client";
+import { establishSessionFromUrl } from "@/shared/lib/supabase/urlSession";
 
 import { useWorkspaceBrand } from "./useWorkspaceBrand";
 
@@ -37,6 +38,19 @@ export function PasswordResetForm() {
       if (authSession && (event === "PASSWORD_RECOVERY" || event === "SIGNED_IN" || event === "INITIAL_SESSION")) markReady();
     });
     const initialize = async () => {
+      const urlSession = await establishSessionFromUrl(supabase);
+      if (urlSession === "session") {
+        markReady();
+        return;
+      }
+      const queryError = searchParams.get("error_code") ?? searchParams.get("error");
+      if (urlSession === "error" || queryError) {
+        window.history.replaceState(null, "", window.location.pathname);
+        if (!mounted) return;
+        setIsError(true);
+        setMessage("El enlace de recuperación venció o ya fue utilizado. Solicita uno nuevo.");
+        return;
+      }
       const code = searchParams.get("code");
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
