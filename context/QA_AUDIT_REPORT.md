@@ -1,0 +1,120 @@
+# Auditoría QA de Producción — ADlive CRM
+
+- **Fecha:** 2026-11-23
+- **Alcance:** https://adlive-crm.vercel.app (producción), workspaces ADlive y CIERTO
+- **Roles ejercidos:** Superadmin de plataforma, Dueño de CIERTO, usuario caótico (inputs hostiles, doble clic, recargas, rutas rotas), sin sesión
+- **Método:** navegación real en navegador integrado + captura de red + verificación SQL directa + revisión cruzada del código (`src/`)
+- **Regla de datos:** todo artefacto de prueba se creó con prefijo `[QA-TEST]` y fue **eliminado** (verificado: 0 residuos en `contacts`, `workflows`, `ai_bots`, `tenant_members`, `auth.users`). No se escriben contraseñas en este documento.
+- **Limitación honesta:** la emulación de viewport del navegador integrado se verificó vía `matchMedia` (media queries responden a 360px), pero `innerWidth` reportado por CDP no es fiable; la matriz responsive se complementa con evidencia de código (clases Tailwind, breakpoints) y captura real a 360px.
+
+---
+
+## 1. Puntajes por área (0–100)
+
+| Área | Puntaje | Comentario |
+|---|---|---|
+| Autenticación y aislamiento de login | 92 | Todos los rechazos y redirecciones correctos; mensajes claros y anti-enumeración |
+| Aislamiento multi-tenant (datos y branding) | 90 | Sin cruces de datos ni marca; la única fuga "adlive" es el propio dominio de plataforma |
+| Funcionalidad core | 55 | **Constructor de workflows inutilizable (P0)**; bots sin borrado; creación de bot sin proveedor |
+| Feedback / UX | 60 | Falso éxito en invitaciones, anuncios obsoletos entre workspaces, mezcla de idiomas |
+| Responsive | 78 | Layout móvil correcto con menú hamburguesa; tablas exigen scroll horizontal en móvil |
+| Seguridad (XSS, RBAC, secretos) | 88 | XSS escapado, RBAC aplicado, tokens solo para owner/admin; observaciones menores |
+
+---
+
+## 2. Tabla de hallazgos
+
+| ID | Sev. | Ruta / Vista | Rol | Hallazgo | Causa raíz (archivo:línea) | Solución propuesta |
+|---|---|---|---|---|---|---|
+| QA-001 | **P0** | `/automatizaciones/[id]` → Builder | Superadmin | Un workflow recién creado queda en "Lienzo vacío" y **no existe botón +** para agregar el primer paso: el builder es un callejón sin salida. Round Robin y mensaje de bienvenida son inalcanzables. Confirmado en DB: `canvas_definition = {"nodes":[],"edges":[]}` | `src/features/workflows/components/BuilderTab.tsx:152-160` (rama vacía sin acción) + `src/shared/services/crmStore.tsx:919` (insert con canvas vacío) + `crmActions.ts:671-680` (`addWorkflowActionNode` exige `sourceNodeId` existente) | Sembrar nodo trigger al crear el workflow y/o renderizar un botón "+" real en el estado vacío que invoque la creación del primer nodo |
+| QA-002 | **P1** | `/equipo` → Invitar miembro | Superadmin | Al fallar la invitación (HTTP 403) la UI muestra igualmente **"Invitación enviada a … con rol Agente."** junto al toast "No autorizado.". Mensajes contradictorios; el usuario cree que invitó y no se creó nada (verificado en DB) | `src/features/team/components/TeamView.tsx:181-184`: `inviteMember()` se llama fire-and-forget y `setAnnouncement(...)` se ejecuta siempre, sin esperar resultado | Hacer `onInvite` async, anunciar éxito solo si la mutación resuelve OK; propagar error al modal |
+| QA-003 | **P1** | `/api/v1/team/invite` | Superadmin | El superadmin **sin membresía** en un workspace cliente no puede invitar miembros (403). La seguridad es correcta, pero la plataforma no ofrece vía para gestionar el equipo del cliente | `src/app/api/v1/team/invite/route.ts:21` usa `requireTenantAdmin` sin override de superadmin | Decisión de producto: o override de superadmin auditado, u ocultar/deshabilitar el botón "Invitar miembro" cuando el llamador no es admin del tenant (con tooltip explicativo) |
+| QA-004 | **P2** | `/bots-ia` | Superadmin | **No hay forma de eliminar un bot** desde la UI (solo activar/desactivar). El bot de prueba tuvo que borrarse por SQL | Tarjeta de bot en `BotsView` solo expone switch (sin acción delete en `crmStore`/`BotsView`) | Agregar acción "Eliminar bot" con confirmación |
+| QA-005 | **P2** | `/bots-ia` → Nuevo bot | Superadmin | Se puede crear un bot con un proveedor **sin API key configurada** (los 4 proveedores estaban "Sin configurar"); el bot fallará en runtime sin aviso | `NewBotModal.tsx`: selector de proveedor sin validación de configuración | Bloquear o advertir al elegir proveedor sin key; sugerir configurar primero |
+| QA-006 | **P2** | `/equipo` | Superadmin | El anuncio "Invitación enviada…" **persiste al cambiar de workspace** (aparece en ADlive tras fallar en CIERTO) | `TeamView.tsx`: `announcement` local no se limpia al cambiar `activeTenantId` | Resetear anuncios/estados efímeros al cambiar de tenant |
+| QA-007 | **P3** | `/automatizaciones/[id]` | Todos | Mezcla de idiomas: pestañas "Builder", "Settings", "Enrollment history", "Execution logs", estados "Draft"/"Saved" en una UI en español | Textos hardcodeados en inglés en las vistas de workflow | Unificar a español |
+| QA-008 | **P3** | `/dashboard` | Todos | Gráfico "Oportunidades ganadas y perdidas" escala el eje Y hasta 700 con todos los datos en 0 | Escala fija/máximo por defecto del componente de chart sin datos | Escala adaptativa u ocultar eje cuando no hay datos |
+| QA-009 | **P3** | `/contactos` (móvil 360px) | Todos | La tabla fuerza `min-w-[1080px]`: en móvil exige scroll horizontal dentro del contenedor (la página en sí no se desborda; menú hamburguesa OK) | `overflow-x-auto` + `min-w-[1080px]` en la tabla | Vista de tarjetas apiladas en `<md` o selección de columnas prioritaria en móvil |
+| QA-010 | **P3** | URLs públicas `/l/{slug}/*`, `/embed/*`, guía de instalación | Clientes | La marca blanca se rompe en el dominio: `adlive-crm.vercel.app` aparece en URLs de landing, embed y ejemplos de la guía del cliente | Dominio único de plataforma | Dominio personalizado/neutro (p. ej. `app.{dominio-cliente}` o dominio genérico) |
+| QA-011 | **P3** | CIERTO `/contactos` y `/conversaciones` | Producción | Datos de prueba dentro del workspace real del cliente: contacto "DAVID MARULANDA" (empresa "Adlive", email `@adlive.com.co`, etiqueta `06222221`) y conversación con el mensaje de prueba de Meta "Welcome! This is a test message from the WhatsApp Business Platform…" | Pruebas de integración hechas sobre el workspace productivo del cliente | Política: probar solo en workspace sandbox; limpiar esos datos con el dueño |
+| QA-012 | Info | `/ajustes` → Landings y Guía | Owner/Admin | El token individual del webhook se muestra completo en la guía. Verificado el gating: `includeWebhookToken=1` solo para roles owner/admin (`crmStore.tsx:470`); un `agent` no lo recibe | Diseño intencional | Aceptable; opcional: enmascarar parcialmente y exigir clic para revelar |
+
+---
+
+## 3. Diagnóstico de los 4 problemas reportados por el usuario
+
+### 3.1 "CIERTO muestra 5 contactos"
+**No reproducido / refutado.** La tabla `contacts` de CIERTO contiene exactamente **3 filas** (Diego Linares, DAVID MARULANDA, Emanuel Guevara) y la UI muestra "3 resultados de 3 contactos de CIERTO" tanto en "Todos los usuarios" como en "Ver como usuario → emanueel031@gmail.com" (el dueño ve todo por su rol). No hay fugas desde ADlive. Hipótesis del origen del reporte: conteo visual previo a la limpieza de datos de prueba o confusión con el contador de otra vista.
+
+### 3.2 "Contaminación de ADlive al configurar/crear workspace"
+**No reproducido.** El modal **Editar empresa** de CIERTO muestra exactamente los datos de CIERTO (nombre, propietario emanueel, logo y paleta `#6B07E9…`). La lista de workspaces muestra contadores coherentes (ADlive 1 usuario/1 contacto; CIERTO 1 usuario/3 contactos). Las pestañas de Ajustes se filtran bien por rol (ver 3.4). La única aparición de "adlive" en la experiencia del cliente es el **dominio de plataforma** (QA-010). No se creó ningún workspace real en esta auditoría (habría creado tenant y usuario auth reales); la inspección fue de UI + código.
+
+### 3.3 "Invitación de equipo"
+**Confirmado y es el hallazgo más engañoso.** Como superadmin dentro de CIERTO (sin membresía), `POST /api/v1/team/invite` responde **403 {"error":"No autorizado."}** — comportamiento de seguridad correcto (QA-003) — pero la pantalla anuncia **"Invitación enviada…"** (QA-002) y el anuncio falso **sobrevive al cambiar de workspace** (QA-006). Verificado en DB: no se creó ninguna fila. El flujo positivo sí funciona: la misma invitación en ADlive (donde el llamador es owner) respondió **201** y creó la membresía `agent` (luego eliminada en la limpieza).
+
+### 3.4 "Emanueel no debería recuperar contraseña en la URL genérica ni ver selectores"
+**Comportamiento actual correcto (ya corregido en iteraciones 12C/12D), verificado en vivo:**
+- Login de emanueel en `/login` genérico → **"Acceso denegado: debes iniciar sesión desde el enlace exclusivo de tu empresa."**
+- Login en `/login?workspace=adlive` (ajeno) → mismo rechazo.
+- Login en `/login?workspace=inexistente` → **"El espacio de trabajo no existe o no está disponible."**
+- Login en `/login?workspace=cierto` → **éxito**, y el header muestra solo "Ver como usuario" y su correo: **no hay selector "Cambiar de workspace"** para él.
+- Recuperación: la ruta `forgot-password` (`src/app/api/v1/auth/forgot-password/route.ts:54-61` + `workspaceAccess.ts:26`) exige membresía activa del workspace indicado (o ser superadmin); sin `workspace` no genera correo alguno aunque el mensaje genérico diga lo contrario (anti-enumeración intencional — esto puede haber dado la falsa impresión de que "dejó recuperar"). `/recuperar-contrasena?workspace=cierto` conserva workspace y marca "Cierto" tras recarga.
+- `/superadmin` como emanueel → redirige a `/dashboard`. Sin sesión, `/dashboard`, `/superadmin`, `/contactos` → redirección limpia a `/login?next=…` sin flash de contenido.
+
+---
+
+## 4. Matriz responsive
+
+| Viewport | Resultado | Evidencia |
+|---|---|---|
+| 360 × 800 (móvil) | ✅ Sin desborde de página; menú hamburguesa; toolbar y filtros apilados; tabla con scroll horizontal interno (QA-009) | Captura real + `matchMedia('(max-width:768px)')=true` + medición de elementos (tabla 1176px dentro de contenedor `overflow-x-auto`) |
+| 390 × 844 (móvil) | ✅ Mismo comportamiento (misma familia de breakpoints `<md`) | Media query + clases Tailwind |
+| 768 × 1024 (tablet) | ✅ Breakpoint `md` colapsa sidebar a hamburguesa; grids fluidos | Revisión de clases (`md:`/`lg:`) en layout y vistas |
+| 1280 × 720 (laptop) | ✅ Sidebar fija, contenido sin desborde | Verificación en vivo previa (viewport 1440×900) y clases |
+| 1440 × 900 (desktop) | ✅ Diseño de referencia de la auditoría; sin desbordes | Verificación directa en toda la sesión |
+
+Nota: la lectura `innerWidth` del navegador integrado no reflejó el override CDP, pero las media queries sí respondieron y la captura a 360px confirma el layout móvil. No se detectaron errores 4xx/5xx espontáneos en la captura de red durante el recorrido (solo el 403 esperado de la invitación).
+
+---
+
+## 5. "Cosas sin propósito" o deudas de producto
+
+1. **Pestañas "Enrollment history" y "Execution logs"** del builder: inaccesibles en la práctica mientras QA-001 impida construir workflows (quedarán vacías para siempre en workflows nuevos).
+2. **Toggle "Publicar"** de un workflow que no puede tener pasos: publica un flujo vacío sin advertencia.
+3. **Switch de bot** sin acción de borrado complementaria (QA-004).
+4. **Selector de proveedor** en Nuevo bot sin relación con el estado de configuración de API keys (QA-005).
+5. **Anuncio de invitación** que sobrevive al contexto (QA-006): texto sin propósito que además miente.
+6. **Escala fija del gráfico del dashboard** sin datos (QA-008).
+7. **Datos de prueba** en el workspace productivo de CIERTO (QA-011): mensaje de prueba de Meta visible para el cliente en su bandeja.
+
+---
+
+## 6. Plan de corrección (máximo 3 sprints)
+
+### Sprint 1 — Crítico funcional y de confianza (P0–P1)
+1. **QA-001:** sembrar el nodo trigger al crear el workflow (`crmStore.tsx:919`) y/o añadir botón "+" real en el estado vacío de `BuilderTab.tsx`; test: crear workflow → agregar 2 pasos (plantilla + Round Robin) → publicar.
+2. **QA-002:** `TeamView.tsx` — `onInvite` async; anuncio solo tras éxito; error visible dentro del modal.
+3. **QA-003:** decisión de producto y una de: override superadmin auditado **o** ocultar/deshabilitar "Invitar miembro" para no-admins con explicación.
+4. **QA-006:** limpiar anuncios efímeros al cambiar `activeTenantId`.
+
+### Sprint 2 — Consistencia de módulos (P2)
+5. **QA-004:** acción "Eliminar bot" con confirmación.
+6. **QA-005:** validar proveedor configurado antes de crear bot (bloqueo o advertencia + enlace a configurar).
+7. **QA-012:** enmascarado parcial del token con revelado explícito (opcional, bajo costo).
+
+### Sprint 3 — Pulido y marca blanca (P3)
+8. **QA-007:** unificar idioma español en vistas de workflow.
+9. **QA-008:** escala adaptativa del gráfico del dashboard.
+10. **QA-009:** vista móvil de contactos en tarjetas o columnas prioritarias.
+11. **QA-010:** estrategia de dominio neutro/personalizado para marca blanca.
+12. **QA-011:** limpiar con el cliente los datos de prueba de CIERTO y fijar política de sandbox para pruebas de integración.
+
+---
+
+## Anexo — Verificación de limpieza (ejecutada al cierre)
+
+```
+qa_contacts=0, qa_workflows=0, qa_bots=0, qa_users=0, cierto_members=1 (solo el dueño)
+```
+
+Cambios de esta auditoría: **ninguno en código de aplicación** (solo documentación). No se tocó producción salvo los artefactos `[QA-TEST]` ya eliminados.
