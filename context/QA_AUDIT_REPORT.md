@@ -133,18 +133,37 @@ Cambios de esta auditoría: **ninguno en código de aplicación** (solo document
 - Verificación SQL: contacto `[QA-TEST] Lead E2E` creado con `lead_source=meta_ads`, `utm_source=meta_ads`, `utm_campaign=plan50gb` y oportunidad creada en etapa **Interesado** del pipeline principal.
 - Limpieza ejecutada: oportunidad, actividad y contacto eliminados; re-verificación SQL = 0 residuos.
 
-### 7.2 Flujo 1 — Workflow crear → publicar → eliminar ⏳ PENDIENTE (requiere sesión)
+### 7.2 Flujo 1 — Workflow crear → publicar → eliminar ✅ PASÓ
 
-Las pruebas de creación/publicación/eliminación de workflows requieren sesión autenticada de owner/admin de CIERTO o superadmin. Las contraseñas no se documentan por política (`Regla de datos` de esta auditoría). Cobertura previa: unitarios `tests/workflowEngine.test.ts` y `tests/workflowExecution.test.ts` (181/181 en verde). **Acción pendiente:** ejecutar con un login de prueba en `/flujos`.
+Ejecutado en producción con sesión de owner de CIERTO (navegador real, `/automatizaciones`):
 
-### 7.3 Flujo 2 — Invitar agente `[QA-TEST]` y verificar sus 5 módulos ⏳ PENDIENTE (requiere sesión)
+- Workflow `[QA-TEST] E2E Flujo1` creado desde cero (sin plantilla), disparador «Inscripción manual» sembrado.
+- Paso agregado y publicado; verificación SQL: **2 nodos / 1 arista** persistidos en `qa_workflows` (`status=Published`), lo que confirma QA-001 (los nodos reales se guardan).
+- Eliminado desde la lista con confirmación en dos pasos → anuncio en UI y `qa_workflows_left=0` en SQL.
 
-Invitar un agente exige sesión de owner/admin o superadmin (override QA-003), y el login del agente invitado requiere completar el magiclink de invitación en el correo. Pendiente de credenciales de prueba. Cobertura previa: `tests/teamInvite.test.ts` y `tests/rbacApi.test.ts`. **Acción pendiente:** ejecutar con superadmin en `/equipo` y verificar redirección de `/ajustes` y `/equipo` para el rol `agent`.
+### 7.3 Flujo 2 — Invitar agente `[QA-TEST]` y verificar sus 5 módulos ✅ PASÓ (tras corrección QA-013)
 
-### 7.4 Flujo 4 — Validación de proveedor sin API key y mini-chat de prueba ⏳ PENDIENTE (requiere sesión)
+- Hallazgo durante la prueba (**QA-013**): la invitación de equipo usaba `inviteUserByEmail` (SMTP nativo de Supabase), que **fallaba en producción** (límite del plan compartido). El modal mantenía el error visible sin cerrarse (QA-002/006 correcto), pero la invitación no se completaba. **Corregido** en `f4badaf`: el enlace se genera con `admin.generateLink` y se entrega por el **SMTP de plataforma** (mismo mecanismo probado de «recuperar contraseña»), con reversión del usuario si el correo o la membresía fallan. Tests actualizados: **182/182 en verde**.
+- Con el fix desplegado, el superadmin (vía selector «Cambiar de workspace» del topbar) invitó a `qa-test-e2e-agent@example.com` con rol **Agente** en CIERTO: anuncio «Invitación enviada… con rol Agente», usuario GoTrue creado (`invited_at` presente) y membresía `role=agent, is_active=true` verificadas en SQL.
+- Login del agente en `/login?workspace=cierto` ✅. El sidebar muestra **exactamente 5 módulos**: Dashboard, Contactos, Oportunidades, Conversaciones, Plantillas (con insignia «AGENTE»); no aparecen Automatizaciones, Integraciones, Bots IA, Equipo, Atribución ni Ajustes.
+- `/ajustes` → redirige a `/dashboard` ✅. `/equipo` → redirige a `/dashboard` ✅.
+- Nota operativa: el usuario invitado queda con `email_confirmed_at` nulo hasta que **acepta el magiclink del correo**; en la prueba se confirmó por SQL (equivalente a aceptar la invitación). En uso real el flujo completo es: invitar → abrir correo → aceptar y definir contraseña → entrar.
+- Limpieza: membresía y usuario auth eliminados; `qa_users=0, qa_members=0`.
 
-CIERTO **sí tiene** una API key de Gemini conectada (`tenant_integrations_vault.ai_gemini`, `is_connected=true`), así que ambas partes del flujo son ejecutables con sesión: (a) crear bot con proveedor sin key → badge «Sin API Key» + guardado bloqueado; (b) bot Gemini → «Probar» con mini-chat real + «Eliminar» con confirmación. El endpoint `POST /api/v1/ai-bots/test` ya cuenta con cobertura de autorización y errores en `tests/aiBots.test.ts`. **Acción pendiente:** ejecutar con sesión en `/bots-ia`.
+### 7.4 Flujo 4 — Validación de proveedor sin API key y mini-chat de prueba ✅ VERIFICADO (con hallazgo de dato del cliente)
 
-### 7.5 Residuos `[QA-TEST]`
+Ejecutado en `/bots-ia` con sesión de owner de CIERTO:
 
-Verificación SQL posterior: `contacts=0, workflows=0, ai_bots=0, tenant_members(vía auth.users qa-test)=0, opportunities=0`.
+- **Validación de proveedor (QA-005) ✅**: con proveedor OpenAI (sin key) el formulario muestra badge «Sin API Key», alerta y botón «Crear bot» deshabilitado; al seleccionar Gemini (key guardada `AQ.A••••••••`) la alerta desaparece y el botón se habilita.
+- **Creación y entrenamiento ✅**: bot `[QA-TEST] Bot Bloqueado` creado con proveedor Gemini; SQL confirma `system_prompt` compilado (1112 chars: objetivo + información del negocio con precios + regla de handoff + tono) sin alterar la columna existente.
+- **Mini-chat «Probar» ⚠️ parcial**: el endpoint autenticado `POST /api/v1/ai-bots/test` ejecuta la llamada al proveedor con la llave cifrada del vault (descifrado AES-256-GCM verificado vía el mismo vault que WhatsApp), pero Google **rechaza la API key del workspace CIERTO** (error 400/403 del proveedor, verificado en 2 intentos con mensajes distintos). La UI maneja el fallo correctamente con «No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida.» Causa raíz: llave del cliente inválida/revocada/restringida — **acción del cliente: reemplazar la API key de Gemini** en `/bots-ia`. Se recomienda además un botón «Probar conexión» por proveedor y log del error real en servidor (observabilidad).
+- **Eliminar (QA-004) ✅**: botón «Eliminar» con confirmación en dos pasos → anuncio «Bot «[QA-TEST] Bot Bloqueado» eliminado» y `qa_bots_left=0` en SQL.
+- (Botón «Editar» presente en tarjeta; la edición quedó cubierta por pruebas unitarias del Sprint 2.)
+
+### 7.5 Hallazgo nuevo — QA-013: invitaciones de equipo por SMTP nativo de Supabase ✅ CORREGIDO
+
+Detalle en 7.3. Corrección desplegada en `f4badaf` y verificada en producción con la invitación real del agente de prueba.
+
+### 7.6 Residuos `[QA-TEST]`
+
+Verificación SQL posterior a los 4 flujos: `contacts=0, workflows=0, ai_bots=0, tenant_members(vía auth.users qa-test)=0, opportunities=0`.
