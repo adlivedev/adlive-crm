@@ -43,7 +43,9 @@ export async function POST(request: Request) {
     const message = status !== 500 ? "No autorizado."
       : error instanceof ProviderHttpError && error.status === 503
         ? "El modelo de IA está saturado momentáneamente por alta demanda. Intenta de nuevo en unos segundos."
-        : "No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida.";
+        : error instanceof ProviderHttpError && error.status === 429
+          ? "La API key agotó su cuota o límite de peticiones. Espera unos minutos o revisa el plan y la facturación de Google AI Studio."
+          : "No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida.";
     return NextResponse.json({ error: message }, { status });
   }
 }

@@ -92,7 +92,7 @@ async function generateWithGemini(apiKey: string, systemPrompt: string, history:
       } catch (error) {
         lastError = error;
         if (!(error instanceof ProviderHttpError)) throw error;
-        if (error.status === 404) break; // la key no tiene acceso a este modelo: probar el siguiente
+        if (error.status === 404 || error.status === 429) break; // sin acceso o cuota agotada: probar el siguiente modelo
         if (error.status === 503) {
           if (attempt === 0) {
             await new Promise((resolve) => setTimeout(resolve, 2500));
