@@ -22,6 +22,11 @@ function niceCeil(value: number): number {
   return Math.ceil(value / 700) * 700;
 }
 
+/** QA-008: detecta cuando todas las barras están en 0 para mostrar el estado vacío. */
+function hasAnyClosures(data: MonthlyPerformancePoint[]): boolean {
+  return data.some((point) => point.ganadas > 0 || point.perdidas > 0);
+}
+
 export interface OpportunitiesChartProps {
   data: MonthlyPerformancePoint[];
 }
@@ -38,8 +43,8 @@ export function OpportunitiesChart({ data }: OpportunitiesChartProps) {
     <Card>
       <CardHeader title="Oportunidades ganadas y perdidas por mes" subtitle="Últimos 6 meses" />
       <div className="px-6 py-6">
-        {data.length === 0 ? (
-          <p className="py-12 text-center text-sm text-adlive-text-muted">Aún no hay cierres registrados en los últimos 6 meses.</p>
+        {data.length === 0 || !hasAnyClosures(data) ? (
+          <p className="py-12 text-center text-sm text-adlive-text-muted">Aún no hay oportunidades cerradas en los últimos 6 meses.</p>
         ) : (
           <svg
             viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}

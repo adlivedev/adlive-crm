@@ -43,7 +43,91 @@ export function ContactsTable({
 
   return (
     <Card>
-      <div className="overflow-x-auto">
+      {/* QA-009: vista móvil nativa (tarjetas apiladas) para celulares; la tabla completa queda en md+. */}
+      <ul className="flex flex-col gap-3 p-4 md:hidden" role="list" aria-label="Lista de contactos">
+        {contacts.map((contact) => {
+          const isSelected = selectedIds.has(contact.id);
+          const isConfirming = confirmingId === contact.id;
+          return (
+            <li key={contact.id} className={`flex flex-col gap-3 rounded-xl border border-adlive-border bg-white p-4 ${isSelected ? "ring-2 ring-adlive-primary/40" : ""}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    onChange={() => onToggleSelect(contact.id)}
+                    aria-label={`Seleccionar a ${contact.full_name}`}
+                    className="h-4 w-4 shrink-0 cursor-pointer rounded border-adlive-border accent-adlive-primary"
+                  />
+                  <div className="min-w-0">
+                    <Link
+                      href={`/contactos/${contact.id}`}
+                      className="block truncate font-semibold text-adlive-primary underline-offset-2 transition-colors hover:text-adlive-primary-hover hover:underline"
+                    >
+                      {contact.full_name}
+                    </Link>
+                    {isVisible(hiddenColumns, "phone") ? (
+                      <a href={`tel:${contact.phone_e164}`} className="mt-0.5 block font-mono text-[13px] text-adlive-text-main">
+                        {formatPhone(contact.phone_e164)}
+                      </a>
+                    ) : null}
+                  </div>
+                </div>
+                {isConfirming ? (
+                  <div className="flex shrink-0 items-center gap-1" role="group" aria-label={`Confirmar eliminación de ${contact.full_name}`}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onDelete(contact.id);
+                        setConfirmingId(null);
+                      }}
+                      aria-label={`Confirmar eliminar a ${contact.full_name}`}
+                      className="cursor-pointer rounded-lg bg-adlive-danger p-1.5 text-white transition-colors hover:bg-red-600"
+                    >
+                      <Check className="h-4 w-4" aria-hidden />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmingId(null)}
+                      aria-label="Cancelar eliminación"
+                      className="cursor-pointer rounded-lg border border-adlive-border bg-white p-1.5 text-adlive-text-muted transition-colors hover:bg-adlive-canvas-bg"
+                    >
+                      <X className="h-4 w-4" aria-hidden />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingId(contact.id)}
+                    aria-label={`Eliminar a ${contact.full_name}`}
+                    className="shrink-0 cursor-pointer rounded-lg p-1.5 text-adlive-text-muted transition-colors hover:bg-red-50 hover:text-adlive-danger"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden />
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {isVisible(hiddenColumns, "source") ? <Badge tone="cyan">{contact.lead_source}</Badge> : null}
+                {isVisible(hiddenColumns, "tags") ? (
+                  contact.tags.length > 0 ? (
+                    contact.tags.map((tag) => (
+                      <Badge key={tag} tone="primary">{tag}</Badge>
+                    ))
+                  ) : (
+                    <span className="text-xs text-adlive-text-muted">Sin etiquetas</span>
+                  )
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+        {contacts.length === 0 ? (
+          <li className="rounded-xl border border-dashed border-adlive-border px-4 py-12 text-center text-sm text-adlive-text-muted">
+            No hay contactos que coincidan con los filtros aplicados.
+          </li>
+        ) : null}
+      </ul>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
           <caption className="sr-only">
             Tabla de contactos con nombre, teléfono, email, empresa, etiquetas, fuente y actividad
