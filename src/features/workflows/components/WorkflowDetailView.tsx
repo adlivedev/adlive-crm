@@ -2,8 +2,9 @@
 
 /**
  * M6 — Interior del Workflow (`/automatizaciones/[id]`).
- * Orquesta la barra superior del flujo y las 4 pestañas: Builder (lienzo
- * visual), Settings, Enrollment history y Execution logs.
+ * Orquesta la barra superior del flujo y las 4 pestañas: Constructor
+ * (lienzo visual), Configuración, Historial de inscritos y Registro de
+ * ejecuciones.
  */
 
 import { ArrowLeft } from "lucide-react";
@@ -22,10 +23,10 @@ import { WorkflowTopBar } from "./WorkflowTopBar";
 export type WorkflowTab = "builder" | "settings" | "enrollment" | "logs";
 
 const TABS: Array<{ id: WorkflowTab; label: string }> = [
-  { id: "builder", label: "Builder" },
-  { id: "settings", label: "Settings" },
-  { id: "enrollment", label: "Enrollment history" },
-  { id: "logs", label: "Execution logs" },
+  { id: "builder", label: "Constructor" },
+  { id: "settings", label: "Configuración" },
+  { id: "enrollment", label: "Historial de inscritos" },
+  { id: "logs", label: "Registro de ejecuciones" },
 ];
 
 interface WorkflowDetailViewProps {

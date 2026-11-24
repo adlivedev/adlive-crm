@@ -10,7 +10,7 @@ import { formatTime } from "@/shared/lib/format";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Workflow } from "@/shared/types/database";
 
-import { outcomeTone } from "./workflowUtils";
+import { enrollmentStatusMeta, outcomeLabel, outcomeTone } from "./workflowUtils";
 
 interface SimulateModalProps { workflow: Workflow; open: boolean; onClose: () => void }
 
@@ -40,7 +40,7 @@ export function SimulateModal({ workflow, open, onClose }: SimulateModalProps) {
           </ul>
         </div>
         {alreadyEnrolled ? <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-adlive-warning">Este contacto ya está inscrito y el workflow no permite una nueva inscripción.</p> : null}
-        {lastEnrollment ? <div className="flex flex-col gap-2.5 rounded-xl border border-adlive-border bg-adlive-canvas-bg/50 px-4 py-3.5"><p className="flex items-center gap-2 text-sm font-semibold">Última inscripción <Badge tone={lastEnrollment.status === "completed" ? "success" : "warning"}>{lastEnrollment.status}</Badge></p><ol className="flex flex-col gap-1.5">{lastEnrollment.execution_logs.map((log, index) => <li key={`${log.node_id}-${index}`} className="flex items-start gap-2.5 text-xs"><Badge tone={outcomeTone(log.outcome)}>{log.outcome}</Badge><div><p className="font-semibold">{log.node_label}</p><p className="text-adlive-text-muted">{log.detail} · {formatTime(log.executed_at)}</p></div></li>)}</ol></div> : null}
+        {lastEnrollment ? <div className="flex flex-col gap-2.5 rounded-xl border border-adlive-border bg-adlive-canvas-bg/50 px-4 py-3.5"><p className="flex items-center gap-2 text-sm font-semibold">Última inscripción <Badge tone={enrollmentStatusMeta(lastEnrollment.status).tone}>{enrollmentStatusMeta(lastEnrollment.status).label}</Badge></p><ol className="flex flex-col gap-1.5">{lastEnrollment.execution_logs.map((log, index) => <li key={`${log.node_id}-${index}`} className="flex items-start gap-2.5 text-xs"><Badge tone={outcomeTone(log.outcome)}>{outcomeLabel(log.outcome)}</Badge><div><p className="font-semibold">{log.node_label}</p><p className="text-adlive-text-muted">{log.detail} · {formatTime(log.executed_at)}</p></div></li>)}</ol></div> : null}
         <div className="flex justify-end gap-3"><Button variant="secondary" onClick={handleClose}>Cerrar</Button><Button isLoading={isMutating} onClick={() => { if (!selectedContact) return; enrollContactInWorkflow(workflow.id, selectedContact.id, null); setExecutedFor(selectedContact.id); }} disabled={!selectedContact || alreadyEnrolled}><Play className="h-4 w-4" aria-hidden />Inscribir contacto</Button></div>
       </div>
     </Modal>

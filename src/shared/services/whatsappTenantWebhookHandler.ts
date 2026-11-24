@@ -7,12 +7,25 @@ import { processAiBotReply } from "@/shared/services/aiBotService";
 import type { ResolvedTenantIntegration } from "@/shared/services/tenantIntegrationService";
 import { credential, publicCredential } from "@/shared/services/tenantIntegrationService";
 import { WebhookHttpError, parseWebhookJson, readWebhookBody, webhookError } from "@/shared/services/webhookHttp";
+import { executeWorkflowsForFirstInboundMessage } from "@/shared/services/workflowExecutionService";
 import {
   ingestWhatsAppPayload, validateWhatsAppChanges, WhatsAppChangeValidationError,
   WhatsAppTenantMismatchError, whatsappPayloadSchema,
 } from "@/shared/services/whatsappWebhookService";
 
 export const WHATSAPP_MAX_BODY_BYTES = 3_000_000;
+
+/** Motor de workflows: al llegar el PRIMER mensaje del lead, ejecuta en el
+  servidor los workflows publicados con disparador «Mensaje recibido en WhatsApp». */
+async function triggerWorkflowsForFirstMessage(tenantId: string, waMessageIds: string[]) {
+  for (const waMessageId of waMessageIds) {
+    try {
+      await executeWorkflowsForFirstInboundMessage(tenantId, waMessageId);
+    } catch (error) {
+      console.error("WhatsApp workflow trigger failed", error instanceof Error ? error.message : "unknown error");
+    }
+  }
+}
 
 export async function verifyWhatsAppChallenge(request: Request, integration: ResolvedTenantIntegration): Promise<Response> {
   const verifyToken = credential(integration, "verify_token");
@@ -36,6 +49,7 @@ async function ingestDeferred(payload: Parameters<typeof ingestWhatsAppPayload>[
     try { await processAiBotReply(waMessageId, integration.tenant_id); }
     catch (error) { console.error("WhatsApp AI reply failed", error instanceof Error ? error.message : "unknown error"); }
   }
+  await triggerWorkflowsForFirstMessage(integration.tenant_id, insertedWaMessageIds);
 }
 
 export async function handleWhatsAppPost(
@@ -76,6 +90,7 @@ export async function handleWhatsAppPost(
         try { await processAiBotReply(waMessageId, integration.tenant_id); }
         catch (error) { console.error("WhatsApp AI reply failed", error instanceof Error ? error.message : "unknown error"); }
       }
+      await triggerWorkflowsForFirstMessage(integration.tenant_id, insertedWaMessageIds);
     });
     return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

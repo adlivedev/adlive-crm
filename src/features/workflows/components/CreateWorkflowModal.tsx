@@ -5,6 +5,7 @@
  * El flujo nace en Draft con lienzo vacío y se construye en el interior.
  */
 
+import { MessageCircleHeart, UsersRound } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/features/contacts/components/Modal";
@@ -20,8 +21,23 @@ interface CreateWorkflowModalProps {
   onClose: () => void;
 }
 
+const RECOMMENDED_TEMPLATES = [
+  {
+    variant: "bienvenida" as const,
+    icon: MessageCircleHeart,
+    title: "Bienvenida automática de formulario + Aviso de asesor",
+    detail: "Contacto creado / Formulario → Enviar plantilla WhatsApp → Mover a Interesado → Asignar Round Robin.",
+  },
+  {
+    variant: "reparto" as const,
+    icon: UsersRound,
+    title: "Reparto equitativo entre agentes activos (Round Robin)",
+    detail: "Mensaje recibido en WhatsApp → Marcar seguimiento → Asignar equitativamente entre agentes activos.",
+  },
+];
+
 export function CreateWorkflowModal({ open, onClose }: CreateWorkflowModalProps) {
-  const { createWorkflow } = useCrm();
+  const { createWorkflow, createWorkflowTemplate } = useCrm();
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<WorkflowTriggerType>("manual_enrollment");
   const [description, setDescription] = useState("");
@@ -44,8 +60,13 @@ export function CreateWorkflowModal({ open, onClose }: CreateWorkflowModalProps)
     handleClose();
   };
 
+  const handleTemplate = (variant: "bienvenida" | "reparto") => {
+    createWorkflowTemplate(variant);
+    handleClose();
+  };
+
   return (
-    <Modal open={open} onClose={handleClose} title="Crear workflow" subtitle="Nace en estado Draft; podrás construirlo en el lienzo visual.">
+    <Modal open={open} onClose={handleClose} title="Crear workflow" subtitle="Elige una plantilla recomendada en 1 clic o créalo desde cero.">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -53,6 +74,30 @@ export function CreateWorkflowModal({ open, onClose }: CreateWorkflowModalProps)
           handleSubmit();
         }}
       >
+        <div className="flex flex-col gap-2">
+          <p className="text-sm font-medium text-adlive-text-main">Plantillas recomendadas</p>
+          {RECOMMENDED_TEMPLATES.map((template) => (
+            <button
+              key={template.variant}
+              type="button"
+              onClick={() => handleTemplate(template.variant)}
+              className="flex cursor-pointer items-start gap-3 rounded-xl border border-adlive-border bg-white px-4 py-3 text-left transition-all duration-150 hover:border-adlive-primary hover:bg-adlive-primary-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-adlive-primary"
+            >
+              <template.icon className="mt-0.5 h-5 w-5 shrink-0 text-adlive-primary" aria-hidden />
+              <span>
+                <span className="block text-sm font-semibold text-adlive-text-main">{template.title}</span>
+                <span className="mt-0.5 block text-xs text-adlive-text-muted">{template.detail}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-3" aria-hidden>
+          <span className="h-px flex-1 bg-adlive-border" />
+          <span className="text-xs font-medium uppercase tracking-wide text-adlive-text-muted">o desde cero</span>
+          <span className="h-px flex-1 bg-adlive-border" />
+        </div>
+
         <Input
           label="Nombre del workflow"
           placeholder="Ej. Difusión oferta diciembre"

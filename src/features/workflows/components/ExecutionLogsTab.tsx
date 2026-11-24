@@ -12,7 +12,7 @@ import { formatDate, formatTime } from "@/shared/lib/format";
 import { useCrm } from "@/shared/services/crmStore";
 import type { WorkflowEnrollment } from "@/shared/types/database";
 
-import { outcomeTone } from "./workflowUtils";
+import { outcomeLabel, outcomeTone } from "./workflowUtils";
 
 interface ExecutionLogsTabProps {
   enrollments: WorkflowEnrollment[];
@@ -88,7 +88,7 @@ export function ExecutionLogsTab({ enrollments }: ExecutionLogsTabProps) {
                   </td>
                   <td className="px-4 py-3.5 font-medium text-adlive-text-main">{row.nodeLabel}</td>
                   <td className="px-4 py-3.5">
-                    <Badge tone={outcomeTone(row.outcome)}>{row.outcome}</Badge>
+                    <Badge tone={outcomeTone(row.outcome)}>{outcomeLabel(row.outcome)}</Badge>
                   </td>
                   <td className="max-w-[360px] px-4 py-3.5 text-adlive-text-muted">
                     <span className={row.detail.includes("Round Robin") ? "font-mono text-xs text-adlive-text-main" : ""}>

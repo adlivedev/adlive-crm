@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { createAdminClient } from "@/shared/lib/supabase/admin";
+import { executeWorkflowsForEvent } from "@/shared/services/workflowExecutionService";
 
 function nullableText(max: number) {
   return z.preprocess(
@@ -123,9 +124,26 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
   });
   if (isTokenError(error)) throw new InvalidPublicWebhookTokenError();
   if (error) throw new Error(`Supabase RPC ingest_tenant_web_lead: ${error.message}`);
-  return z.array(z.object({
+  const result = z.array(z.object({
     out_contact_id: z.string().uuid(),
     out_assigned_member_id: z.string().uuid().nullable(),
     out_opportunity_id: z.string().uuid(),
-  })).length(1).parse(data)[0];
+  })).length(1).parse(data)[0]!;
+
+  /* Motor real de workflows (servidor): los workflows publicados con
+     disparador «Contacto creado / Formulario Web» (con su filtro opcional
+     de campaña/landing/etiqueta) se ejecutan ahora sobre el nuevo lead. Un
+     fallo aquí nunca rompe la respuesta del webhook de captación. */
+  try {
+    await executeWorkflowsForEvent({
+      tenantId,
+      contactId: result.out_contact_id,
+      event: "contact_created",
+      utmCampaign: payload.utm_campaign,
+      landingUrl: payload.landing_url,
+    });
+  } catch (workflowError) {
+    console.error("Workflow execution after lead ingestion failed", workflowError instanceof Error ? workflowError.message : "unknown error");
+  }
+  return result;
 }

@@ -7,7 +7,7 @@
  */
 
 import { Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
@@ -22,10 +22,16 @@ function emailInitials(email: string): string {
 }
 
 export function TeamView() {
-  const { members, session, inviteMember, updateMember, deleteMember } = useCrm();
+  const { members, session, activeTenant, inviteMember, updateMember, deleteMember } = useCrm();
   const [showInvite, setShowInvite] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+
+  // QA-006: los anuncios y estados efímeros no sobreviven al cambio de workspace.
+  useEffect(() => {
+    setAnnouncement("");
+    setPendingDeleteId(null);
+  }, [activeTenant?.id]);
 
   const handleDelete = (memberId: string, email: string) => {
     if (pendingDeleteId !== memberId) {
@@ -178,8 +184,12 @@ export function TeamView() {
       <InviteMemberModal
         open={showInvite}
         onClose={() => setShowInvite(false)}
-        onInvite={(email, role) => {
-          inviteMember(email, role);
+        onInvite={async (email, role) => {
+          // QA-002: espera la respuesta real; si falla, el error queda en el modal.
+          await inviteMember(email, role);
+        }}
+        onInvited={(email, role) => {
+          // Solo se anuncia éxito tras un 2xx real del servidor.
           setAnnouncement(`Invitación enviada a ${email} con rol ${role === "admin" ? "Admin" : "Agente"}.`);
         }}
       />

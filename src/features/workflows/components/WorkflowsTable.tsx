@@ -14,7 +14,7 @@ import { Card } from "@/shared/components/ui/Card";
 import { formatNumber } from "@/shared/lib/format";
 import type { Workflow } from "@/shared/types/database";
 
-import { TRIGGER_LABELS, workflowStatusTone } from "./workflowUtils";
+import { TRIGGER_LABELS, workflowStatusLabel, workflowStatusTone } from "./workflowUtils";
 
 interface WorkflowsTableProps {
   workflows: Workflow[];
@@ -78,7 +78,7 @@ export function WorkflowsTable({ workflows, onToggleStatus, onDelete }: Workflow
                       title={workflow.status === "Published" ? "Clic para despublicar" : "Clic para publicar"}
                       className="cursor-pointer rounded-full transition-transform duration-150 hover:scale-105 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-adlive-primary"
                     >
-                      <Badge tone={workflowStatusTone(workflow.status)}>{workflow.status}</Badge>
+                      <Badge tone={workflowStatusTone(workflow.status)}>{workflowStatusLabel(workflow.status)}</Badge>
                     </button>
                   </td>
                   <td className="px-4 py-4 text-adlive-text-main">{TRIGGER_LABELS[workflow.trigger_type]}</td>

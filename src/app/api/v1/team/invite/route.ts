@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getAppOrigin } from "@/shared/lib/appOrigin";
-import { authErrorStatus, requireTenantAdmin } from "@/shared/lib/serverAuth";
+import { authErrorStatus, requireTenantAdminOrPlatformSuperadmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -18,7 +18,8 @@ export async function POST(request: Request) {
     const parsed = inviteSchema.safeParse(await request.json());
     if (!parsed.success) return NextResponse.json({ error: "Revisa el correo y el rol del invitado." }, { status: 400 });
     const input = parsed.data;
-    await requireTenantAdmin(input.tenantId);
+    // QA-003: owner/admin del tenant o superadmin de plataforma (override auditado).
+    const { user, member } = await requireTenantAdminOrPlatformSuperadmin(input.tenantId);
     const admin = createAdminClient();
     const appUrl = getAppOrigin(request);
     const { data: tenant, error: tenantError } = await admin.from("tenants").select("slug").eq("id", input.tenantId).maybeSingle();
@@ -32,6 +33,14 @@ export async function POST(request: Request) {
       is_active: true, can_view_all_contacts: input.role === "admin", presence: "offline",
     }, { onConflict: "tenant_id,email" });
     if (error) return NextResponse.json({ error: "El usuario fue invitado, pero no se pudo guardar su membresía." }, { status: 500 });
+    // Auditoría: quién creó la invitación y si usó el override de superadmin.
+    console.info("team.invite.created", JSON.stringify({
+      tenantId: input.tenantId,
+      email: input.email,
+      role: input.role,
+      invitedBy: user.email ?? user.id,
+      viaSuperadminOverride: member === null,
+    }));
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
     const status = authErrorStatus(error);

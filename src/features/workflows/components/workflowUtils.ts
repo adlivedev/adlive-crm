@@ -8,13 +8,10 @@
 import type {
   BadgeTone,
 } from "@/shared/components/ui/Badge";
+import { TRIGGER_NODE_LABELS, workflowStatusLabel } from "@/shared/lib/workflowEngine";
 import type { WorkflowStatus, WorkflowTriggerType } from "@/shared/types/database";
 
-export const TRIGGER_LABELS: Record<WorkflowTriggerType, string> = {
-  manual_enrollment: "Inscripción manual",
-  contact_created: "Contacto creado",
-  channel_message_received: "Mensaje recibido en un canal",
-};
+export const TRIGGER_LABELS: Record<WorkflowTriggerType, string> = TRIGGER_NODE_LABELS;
 
 export const TRIGGER_OPTIONS: Array<{ value: WorkflowTriggerType; label: string }> = [
   { value: "manual_enrollment", label: TRIGGER_LABELS.manual_enrollment },
@@ -26,15 +23,24 @@ export function workflowStatusTone(status: WorkflowStatus): BadgeTone {
   return status === "Published" ? "success" : "neutral";
 }
 
+export { workflowStatusLabel };
+
+/** Etiqueta legible del resultado de un log de ejecución (QA-007: español). */
+export function outcomeLabel(outcome: "success" | "error" | "skipped"): string {
+  if (outcome === "success") return "Éxito";
+  if (outcome === "error") return "Error";
+  return "Omitido";
+}
+
 /** Estados de inscripción → etiqueta legible + tono de badge. */
 export function enrollmentStatusMeta(status: string): { label: string; tone: BadgeTone } {
   switch (status) {
     case "completed":
-      return { label: "completed", tone: "success" };
+      return { label: "Completado", tone: "success" };
     case "waiting_reply":
-      return { label: "waiting_reply", tone: "warning" };
+      return { label: "Esperando respuesta", tone: "warning" };
     case "active":
-      return { label: "active", tone: "cyan" };
+      return { label: "Activo", tone: "cyan" };
     default:
       return { label: status, tone: "neutral" };
   }

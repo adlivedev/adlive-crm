@@ -10,6 +10,7 @@ import { Maximize2, Minimize2, Minus, Plus } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
+import { TRIGGER_NODE_LABELS, triggerNodeConfig } from "@/shared/lib/workflowEngine";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Workflow, WorkflowEdge, WorkflowNode } from "@/shared/types/database";
 
@@ -33,7 +34,7 @@ interface BuilderTabProps {
 }
 
 export function BuilderTab({ workflow, onSaved }: BuilderTabProps) {
-  const { pipelineStages } = useCrm();
+  const { pipelineStages, addWorkflowInitialNode } = useCrm();
   const [zoom, setZoom] = useState(0.7);
   const [panel, setPanel] = useState<PanelState>(null);
   const [simulateOpen, setSimulateOpen] = useState(false);
@@ -155,8 +156,24 @@ export function BuilderTab({ workflow, onSaved }: BuilderTabProps) {
             <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-adlive-border bg-white/80 px-8 py-10 text-center">
               <p className="text-sm font-semibold text-adlive-text-main">Lienzo vacío</p>
               <p className="max-w-xs text-sm text-adlive-text-muted">
-                Este workflow aún no tiene pasos. Agrega el primer paso desde el botón + .
+                Este workflow aún no tiene pasos. Agrega el disparador inicial para empezar a construir el flujo.
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  // QA-001: crea el primer nodo sin exigir un nodo origen previo.
+                  addWorkflowInitialNode(workflow.id, {
+                    label: TRIGGER_NODE_LABELS[workflow.trigger_type],
+                    config: triggerNodeConfig(workflow.trigger_type),
+                    type: "trigger",
+                  });
+                  onSaved();
+                }}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-adlive-primary px-4 py-2.5 text-sm font-semibold text-white shadow-card transition-all duration-150 hover:bg-adlive-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-adlive-primary"
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Agregar disparador inicial
+              </button>
             </div>
           )}
         </div>

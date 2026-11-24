@@ -21,6 +21,7 @@ import type {
   WorkflowTriggerType,
 } from "@/shared/types/database";
 import type { CrmInitialData } from "@/shared/mocks/initialData";
+import { seedTriggerCanvas } from "@/shared/lib/workflowEngine";
 
 export interface StatsDelta {
   totalContacts: number;
@@ -596,7 +597,8 @@ export function createWorkflow(
     status: "Draft",
     trigger_type: input.trigger_type,
     allow_reenrollment: false,
-    canvas_definition: { nodes: [], edges: [] },
+    // QA-001: siembra el nodo disparador; un workflow nuevo ya no nace vacío.
+    canvas_definition: seedTriggerCanvas(input.trigger_type, newId("n")),
     enrolled_count: 0,
     active_count: 0,
     updated_at: timestamp,
@@ -696,6 +698,38 @@ export function addWorkflowActionNode(
   } else {
     canvas.edges.push({ id: newId("e"), source_node_id: sourceNodeId, target_node_id: nodeId, label: edgeLabel });
   }
+  workflow.updated_at = nowIso();
+  return next;
+}
+
+export interface AddWorkflowInitialNodeInput {
+  label: string;
+  config: Record<string, string>;
+  type?: "trigger" | "action";
+}
+
+/**
+ * Crea el primer nodo de un workflow cuyo lienzo está vacío (QA-001), sin
+ * exigir un `sourceNodeId` previo. Si el lienzo ya tiene nodos, no hace nada
+ * (la inserción normal debe usar `addWorkflowActionNode`).
+ */
+export function addWorkflowInitialNode(
+  state: CrmState,
+  workflowId: string,
+  input: AddWorkflowInitialNodeInput,
+): CrmState {
+  const next = cloneState(state);
+  const workflow = next.data.workflows.find((w) => w.id === workflowId);
+  if (!workflow) return state;
+  const canvas = workflow.canvas_definition;
+  if (canvas.nodes.length > 0) return state;
+  canvas.nodes.push({
+    id: newId("n"),
+    type: input.type ?? "trigger",
+    label: input.label.trim(),
+    config: input.config,
+    position: { x: 0, y: 0 },
+  });
   workflow.updated_at = nowIso();
   return next;
 }

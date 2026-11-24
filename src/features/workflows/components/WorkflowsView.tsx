@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { Button } from "@/shared/components/ui/Button";
+import { workflowPublishBlockReason } from "@/shared/lib/workflowEngine";
 import { useCrm } from "@/shared/services/crmStore";
 
 import { CreateWorkflowModal } from "./CreateWorkflowModal";
@@ -62,6 +63,14 @@ export function WorkflowsView() {
       <WorkflowsTable
         workflows={workflows}
         onToggleStatus={(workflow) => {
+          // El bloqueo de publicación también aplica desde el listado.
+          if (workflow.status !== "Published") {
+            const blockReason = workflowPublishBlockReason(workflow);
+            if (blockReason) {
+              setAnnouncement(`No se pudo publicar «${workflow.name}»: ${blockReason}`);
+              return;
+            }
+          }
           toggleWorkflowStatus(workflow.id);
           setAnnouncement(
             `Workflow «${workflow.name}» ${workflow.status === "Published" ? "despublicado" : "publicado"}.`,

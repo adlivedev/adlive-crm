@@ -10,6 +10,7 @@ import { FlaskConical, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/shared/components/ui/Button";
+import { TRIGGER_FILTER_LABELS, type TriggerFilterType } from "@/shared/lib/workflowEngine";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Workflow, WorkflowNode } from "@/shared/types/database";
 
@@ -45,6 +46,8 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
   const [actionType, setActionType] = useState<ActionType>("Enviar WhatsApp");
   const [templateName, setTemplateName] = useState("");
   const [stageId, setStageId] = useState("");
+  const [filterType, setFilterType] = useState<TriggerFilterType>("ninguno");
+  const [filterValue, setFilterValue] = useState("");
   const [feedback, setFeedback] = useState("");
 
   const approvedTemplates = templates.filter((template) => template.status === "APPROVED");
@@ -57,6 +60,9 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
     if (panel.mode === "edit") {
       setTemplateName(panel.node.config.template ?? approvedTemplates[0]?.name ?? "");
       setStageId(panel.node.config.stage_id ?? openStages[0]?.id ?? "");
+      const tipo = panel.node.config.filtro_tipo ?? "ninguno";
+      setFilterType(tipo === "campania" || tipo === "landing" || tipo === "etiqueta" ? tipo : "ninguno");
+      setFilterValue(panel.node.config.filtro_valor ?? "");
     } else {
       setActionType("Enviar WhatsApp");
       setTemplateName(approvedTemplates[0]?.name ?? "");
@@ -86,6 +92,10 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
   const handleApply = () => {
     if (panel.mode === "edit" && editNode) {
       const config: Record<string, string> = {};
+      if (editNode.type === "trigger") {
+        config.filtro_tipo = filterType;
+        if (filterType !== "ninguno" && filterValue.trim()) config.filtro_valor = filterValue.trim();
+      }
       if (needsTemplate && templateName) config.template = templateName;
       if (needsStage && stageValue) {
         config.stage_id = stageValue;
@@ -203,6 +213,45 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
                 ))}
               </select>
             </div>
+          ) : null}
+
+          {editNode?.type === "trigger" ? (
+            <>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="panel-filter-type" className="text-sm font-medium text-adlive-text-main">
+                  Filtrar por origen (opcional)
+                </label>
+                <select
+                  id="panel-filter-type"
+                  value={filterType}
+                  onChange={(event) => setFilterType(event.target.value as TriggerFilterType)}
+                  className={SELECT_CLASS}
+                >
+                  {(Object.keys(TRIGGER_FILTER_LABELS) as TriggerFilterType[]).map((option) => (
+                    <option key={option} value={option}>
+                      {TRIGGER_FILTER_LABELS[option]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {filterType !== "ninguno" ? (
+                <div className="flex flex-col gap-1.5">
+                  <label htmlFor="panel-filter-value" className="text-sm font-medium text-adlive-text-main">
+                    Valor del filtro
+                  </label>
+                  <input
+                    id="panel-filter-value"
+                    value={filterValue}
+                    onChange={(event) => setFilterValue(event.target.value)}
+                    placeholder={filterType === "campania" ? "Ej. Plan 50GB Movistar" : filterType === "landing" ? "Ej. captacion-hero" : "Ej. lead-formulario"}
+                    className="h-10 w-full rounded-xl border border-adlive-border bg-white px-3 text-sm text-adlive-text-main transition-colors duration-150 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
+                  />
+                  <p className="text-xs text-adlive-text-muted">
+                    Solo se inscriben los contactos cuyo evento coincida con este valor.
+                  </p>
+                </div>
+              ) : null}
+            </>
           ) : null}
 
           {editNode?.label.startsWith("Asignar a un miembro") ? (

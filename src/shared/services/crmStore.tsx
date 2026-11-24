@@ -16,6 +16,11 @@ import { assignedMemberForView, contactMemberForView } from "@/shared/lib/auth/r
 import { ACTIVE_TENANT_COOKIE } from "@/shared/lib/auth/workspaceAccess";
 import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
 import { establishSessionFromUrl } from "@/shared/lib/supabase/urlSession";
+import {
+  buildRoundRobinTemplateCanvas,
+  buildWelcomeTemplateCanvas,
+  seedTriggerCanvas,
+} from "@/shared/lib/workflowEngine";
 import { subscribeToInboxRealtime } from "@/shared/services/inboxRealtimeService";
 import type {
   AiBot,
@@ -149,6 +154,7 @@ export type CreateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" 
 export type CreateCustomFieldInput = Pick<CustomFieldDefinition, "field_key" | "field_label" | "field_type"> & { options?: string[] };
 export type SimulatedReply = "Si" | "No" | "Otra respuesta" | "Undelivered" | "Time Out";
 export type AddWorkflowActionNodeInput = { label: string; config: Record<string, string>; edgeLabel?: string | null };
+export type AddWorkflowInitialNodeInput = { label: string; config: Record<string, string>; type?: "trigger" | "action" };
 
 interface CrmData {
   contacts: Contact[];
@@ -234,13 +240,15 @@ interface CrmContextValue {
   createWhatsappTemplate: (input: CreateTemplateInput) => Promise<void>;
   deleteWhatsappTemplate: (templateId: string) => void;
   createWorkflow: (input: CreateWorkflowInput) => void;
+  createWorkflowTemplate: (variant: "bienvenida" | "reparto") => void;
   toggleWorkflowStatus: (workflowId: string) => void;
   deleteWorkflow: (workflowId: string) => void;
   updateWorkflow: (workflowId: string, input: UpdateWorkflowInput) => void;
   updateWorkflowNodeConfig: (workflowId: string, nodeId: string, config: Record<string, string>) => void;
   addWorkflowActionNode: (workflowId: string, sourceNodeId: string, input: AddWorkflowActionNodeInput) => void;
+  addWorkflowInitialNode: (workflowId: string, input: AddWorkflowInitialNodeInput) => void;
   enrollContactInWorkflow: (workflowId: string, contactId: string, simulatedReply: SimulatedReply | null) => void;
-  inviteMember: (email: string, role: TenantMember["role"]) => void;
+  inviteMember: (email: string, role: TenantMember["role"]) => Promise<void>;
   updateMember: (memberId: string, patch: MemberPatch) => void;
   deleteMember: (memberId: string) => void;
   createAiBot: (input: CreateAiBotInput) => void;
@@ -916,7 +924,39 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       if (error) throw new Error(error.message);
     }),
     createWorkflow: (input) => runMutation(async () => {
-      const { error } = await createClient().from("workflows").insert({ ...input, tenant_id: requireTenant(), name: input.name.trim(), description: input.description?.trim() || null, status: "Draft", canvas_definition: { nodes: [], edges: [] } });
+      // QA-001: siembra el nodo disparador elegido en lugar de un lienzo vacío.
+      const { error } = await createClient().from("workflows").insert({
+        ...input,
+        tenant_id: requireTenant(),
+        name: input.name.trim(),
+        description: input.description?.trim() || null,
+        status: "Draft",
+        canvas_definition: seedTriggerCanvas(input.trigger_type, crypto.randomUUID()),
+      });
+      if (error) throw new Error(error.message);
+    }),
+    createWorkflowTemplate: (variant) => runMutation(async () => {
+      const tenant = requireTenant();
+      const isWelcome = variant === "bienvenida";
+      const stage = data.pipelineStages.find((item) => item.tenant_id === tenant && item.name === "Interesado" && item.stage_category === "open")
+        ?? data.pipelineStages.find((item) => item.tenant_id === tenant && item.stage_category === "open");
+      const templateName = data.whatsappTemplates.find((item) => item.tenant_id === tenant && item.status === "APPROVED")?.name ?? null;
+      const canvas = isWelcome
+        ? buildWelcomeTemplateCanvas({ triggerType: "contact_created", templateName, stageId: stage?.id ?? null, stageName: stage?.name ?? "Interesado" })
+        : buildRoundRobinTemplateCanvas("channel_message_received");
+      const { error } = await createClient().from("workflows").insert({
+        tenant_id: tenant,
+        name: isWelcome ? "Bienvenida automática de formulario + Aviso de asesor" : "Reparto equitativo entre agentes activos (Round Robin)",
+        description: isWelcome
+          ? "Disparador: Contacto creado / Formulario Web → Enviar plantilla de bienvenida por WhatsApp → Mover a Interesado → Asignar Round Robin."
+          : "Disparador: Mensaje recibido en WhatsApp → Marcar en seguimiento → Asignar equitativamente entre agentes activos.",
+        status: "Draft",
+        trigger_type: isWelcome ? "contact_created" : "channel_message_received",
+        allow_reenrollment: false,
+        canvas_definition: canvas,
+        enrolled_count: 0,
+        active_count: 0,
+      });
       if (error) throw new Error(error.message);
     }),
     toggleWorkflowStatus: (workflowId) => runMutation(async () => {
@@ -955,11 +995,23 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       const { error } = await createClient().from("workflows").update({ canvas_definition: canvas }).eq("id", workflowId);
       if (error) throw new Error(error.message);
     }),
+    addWorkflowInitialNode: (workflowId, input) => runMutation(async () => {
+      // QA-001: permite crear el primer nodo de un workflow heredado con lienzo vacío.
+      const workflow = data.workflows.find((item) => item.id === workflowId);
+      if (!workflow || workflow.canvas_definition.nodes.length > 0) return;
+      const canvas = {
+        nodes: [{ id: crypto.randomUUID(), type: input.type ?? "trigger" as const, label: input.label.trim(), config: input.config, position: { x: 0, y: 0 } }],
+        edges: [],
+      };
+      const { error } = await createClient().from("workflows").update({ canvas_definition: canvas }).eq("id", workflowId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
     enrollContactInWorkflow: (workflowId, contactId, _simulatedReply) => runMutation(async () => {
       const { error } = await createClient().from("workflow_enrollments").insert({ tenant_id: requireTenant(), workflow_id: workflowId, contact_id: contactId, status: "active", execution_logs: [{ node_id: "enrollment", node_label: "Inscripción manual", executed_at: new Date().toISOString(), outcome: "success", detail: "Contacto inscrito. La ejecución se procesará en el servidor." }] });
       if (error) throw new Error(error.message);
     }),
-    inviteMember: (email, role) => runMutation(async () => {
+    inviteMember: (email, role) => runMutationAsync(async () => {
+      // QA-002: propaga el resultado real al llamador (éxito 2xx o error 4xx/5xx).
       const response = await fetch("/api/v1/team/invite", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tenantId: requireTenant(), email, role }) });
       const result = await response.json() as { error?: string };
       if (!response.ok) throw new Error(result.error ?? "No se pudo enviar la invitación.");

@@ -2,6 +2,9 @@
 
 /**
  * M10 — Modal de invitación de miembro al equipo.
+ * QA-002: espera la respuesta real del servidor; solo cierra y anuncia éxito
+ * tras un 2xx. Ante 4xx/5xx muestra el error real dentro del modal y no
+ * anuncia un falso "Invitación enviada".
  */
 
 import { useState } from "react";
@@ -14,12 +17,17 @@ import type { UserRole } from "@/shared/types/database";
 export interface InviteMemberModalProps {
   open: boolean;
   onClose: () => void;
-  onInvite: (email: string, role: UserRole) => void;
+  /** Ejecuta la invitación; lanza un Error con el mensaje del servidor si falla. */
+  onInvite: (email: string, role: UserRole) => Promise<void>;
+  /** Solo se invoca tras un envío exitoso (para el banner verde). */
+  onInvited?: (email: string, role: UserRole) => void;
 }
 
-export function InviteMemberModal({ open, onClose, onInvite }: InviteMemberModalProps) {
+export function InviteMemberModal({ open, onClose, onInvite, onInvited }: InviteMemberModalProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<UserRole>("agent");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const roleId = "invite-member-role";
 
   const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
@@ -27,14 +35,25 @@ export function InviteMemberModal({ open, onClose, onInvite }: InviteMemberModal
   const handleClose = () => {
     setEmail("");
     setRole("agent");
+    setError("");
     onClose();
   };
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!isValid) return;
-    onInvite(email.trim().toLowerCase(), role);
-    handleClose();
+    if (!isValid || isSubmitting) return;
+    setIsSubmitting(true);
+    setError("");
+    const normalizedEmail = email.trim().toLowerCase();
+    try {
+      await onInvite(normalizedEmail, role);
+      onInvited?.(normalizedEmail, role);
+      handleClose();
+    } catch (inviteError) {
+      setError(inviteError instanceof Error ? inviteError.message : "No se pudo enviar la invitación.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -44,7 +63,10 @@ export function InviteMemberModal({ open, onClose, onInvite }: InviteMemberModal
           label="Correo"
           type="email"
           value={email}
-          onChange={(event) => setEmail(event.target.value)}
+          onChange={(event) => {
+            setEmail(event.target.value);
+            setError("");
+          }}
           placeholder="asesor@adlive.co"
           autoComplete="email"
         />
@@ -65,11 +87,16 @@ export function InviteMemberModal({ open, onClose, onInvite }: InviteMemberModal
             Admin gestiona la cuenta y las integraciones; Agente atiende conversaciones y oportunidades.
           </p>
         </div>
+        {error ? (
+          <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-adlive-danger">
+            {error}
+          </p>
+        ) : null}
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={handleClose}>
             Cancelar
           </Button>
-          <Button type="submit" disabled={!isValid}>
+          <Button type="submit" disabled={!isValid || isSubmitting} isLoading={isSubmitting}>
             Enviar invitación
           </Button>
         </div>
