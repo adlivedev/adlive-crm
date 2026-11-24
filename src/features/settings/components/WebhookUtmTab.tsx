@@ -1,6 +1,6 @@
 "use client";
 
-import { LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle, RefreshCw, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
@@ -15,6 +15,7 @@ import { CaptureCopyButton } from "./CaptureCopyButton";
 import { CaptureGuide } from "./CaptureGuide";
 import { EmbedForms } from "./EmbedForms";
 import { LandingManager } from "./LandingManager";
+import { maskToken } from "./settingsUtils";
 
 export function WebhookUtmTab() {
   const { activeTenant } = useCrm();
@@ -25,6 +26,7 @@ export function WebhookUtmTab() {
   const [error, setError] = useState("");
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [showToken, setShowToken] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
   useEffect(() => { setAppOrigin(window.location.origin); }, []);
@@ -59,6 +61,7 @@ export function WebhookUtmTab() {
       const result = await response.json() as { token?: string; error?: string };
       if (!response.ok || !result.token) throw new Error(result.error ?? "No se pudo regenerar.");
       setToken(result.token);
+      setShowToken(false);
       setConfirmRegenerate(false);
       setAnnouncement("Token regenerado. Actualiza los scripts y formularios externos que usaban el token anterior.");
     } catch (regenerateError) {
@@ -78,7 +81,18 @@ export function WebhookUtmTab() {
         <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="text-sm font-semibold text-adlive-text-main">Webhook individual de leads</h3><p className="mt-1 text-xs text-adlive-text-muted">Crea o actualiza el contacto y abre una oportunidad en Interesado dentro del pipeline principal.</p></div><Badge tone="success"><ShieldCheck className="mr-1 h-3.5 w-3.5" aria-hidden />Aislado por empresa</Badge></div>
         <div className="mt-5 grid gap-4 xl:grid-cols-2">
           <div><div className="flex items-end gap-2"><div className="min-w-0 flex-1"><Input readOnly label="URL del webhook" value={webhookUrl} onFocus={(event) => event.target.select()} /></div><CaptureCopyButton value={webhookUrl} label="Copiar URL" /></div></div>
-          <div><div className="flex items-end gap-2"><div className="min-w-0 flex-1"><Input readOnly label="Token individual" value={token} onFocus={(event) => event.target.select()} className="font-mono" /></div><CaptureCopyButton value={token} label="Copiar token" /></div></div>
+          <div>
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <Input readOnly label="Token individual" value={showToken ? token : maskToken(token)} onFocus={(event) => event.target.select()} className="font-mono" aria-describedby="webhook-token-help" />
+              </div>
+              <Button type="button" variant="secondary" onClick={() => setShowToken((current) => !current)} aria-pressed={showToken} aria-label={showToken ? "Ocultar token" : "Mostrar token"}>
+                {showToken ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}{showToken ? "Ocultar" : "Mostrar"}
+              </Button>
+              <CaptureCopyButton value={token} label="Copiar token" />
+            </div>
+            <p id="webhook-token-help" className="mt-1 text-xs text-adlive-text-muted">El token se muestra enmascarado por defecto; «Copiar» siempre copia el valor completo de forma segura.</p>
+          </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {confirmRegenerate ? <><Button type="button" variant="danger" onClick={() => void regenerateToken()} disabled={regenerating}>{regenerating ? <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden /> : <RefreshCw className="h-4 w-4" aria-hidden />}{regenerating ? "Regenerando…" : "Confirmar regeneración"}</Button><Button type="button" variant="ghost" onClick={() => setConfirmRegenerate(false)}>Cancelar</Button><span className="text-xs text-adlive-danger">El token anterior dejará de funcionar.</span></> : <Button type="button" variant="ghost" onClick={() => setConfirmRegenerate(true)}><RefreshCw className="h-4 w-4" aria-hidden />Regenerar token</Button>}

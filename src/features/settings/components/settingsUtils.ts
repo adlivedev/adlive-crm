@@ -2,6 +2,14 @@
  * M12 — Utilidades puras de Ajustes: tokens, portapapeles y script UTM.
  */
 
+/** QA-012: enmascara el token mostrando solo sus últimos 4 caracteres (`••••••1234`). */
+export function maskToken(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return "";
+  if (trimmed.length <= 4) return "••••••";
+  return `••••••${trimmed.slice(-4)}`;
+}
+
 /** Genera un token hexadecimal aleatorio (mock del servidor en Etapa A). */
 export function generateHexToken(bytes = 24): string {
   const chars = "0123456789abcdef";

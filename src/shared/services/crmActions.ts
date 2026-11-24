@@ -7,6 +7,7 @@
  */
 
 import type {
+  AiBot,
   AiBotProvider,
   Contact,
   CustomFieldType,
@@ -1021,6 +1022,24 @@ export function toggleAiBot(state: CrmState, botId: string): CrmState {
   const bot = next.data.aiBots.find((b) => b.id === botId);
   if (!bot) return state;
   bot.is_active = !bot.is_active;
+  return next;
+}
+
+// QA-004: elimina un bot IA de la lista local (el borrado real lo hace el store vía RLS).
+export function deleteAiBot(state: CrmState, botId: string): CrmState {
+  const next = cloneState(state);
+  next.data.aiBots = next.data.aiBots.filter((b) => b.id !== botId);
+  return next;
+}
+
+// Edición de bots: ajusta nombre, línea de negocio e instrucciones sin recrear el bot.
+export type UpdateAiBotPatch = Partial<Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt" | "is_active">>;
+
+export function updateAiBot(state: CrmState, botId: string, patch: UpdateAiBotPatch): CrmState {
+  const next = cloneState(state);
+  const bot = next.data.aiBots.find((b) => b.id === botId);
+  if (!bot) return state;
+  Object.assign(bot, patch);
   return next;
 }
 

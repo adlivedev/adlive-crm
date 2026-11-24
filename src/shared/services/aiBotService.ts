@@ -80,6 +80,15 @@ async function generateBotText(provider: SupportedProvider, tenantId: string, sy
   return generateWithOpenAiCompatible(provider, apiKey, systemPrompt, history);
 }
 
+/**
+ * Sprint 2 — Genera UNA respuesta de prueba para el panel «Probar Bot en Vivo».
+ * Reutiliza la llave cifrada del vault y el proveedor real del bot, sin tocar
+ * WhatsApp ni crear mensajes o contactos.
+ */
+export async function generateBotAnswerForTest(provider: SupportedProvider, tenantId: string, systemPrompt: string, testMessage: string): Promise<string> {
+  return generateBotText(provider, tenantId, systemPrompt, [{ role: "user", content: testMessage.slice(0, 2000) }]);
+}
+
 /** Procesa un inbound ya persistido. La columna in_reply_to_message_id evita respuestas duplicadas. */
 export async function processAiBotReply(waMessageId: string, expectedTenantId?: string): Promise<void> {
   const admin = createAdminClient();

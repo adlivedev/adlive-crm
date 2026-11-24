@@ -151,6 +151,7 @@ export type CreateTemplateInput = Pick<WhatsAppTemplate, "name" | "category" | "
 export type CreateWorkflowInput = Pick<Workflow, "name" | "trigger_type"> & { description?: string | null };
 export type UpdateWorkflowInput = Partial<Pick<Workflow, "name" | "description" | "allow_reenrollment">>;
 export type CreateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt">;
+export type UpdateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt">;
 export type CreateCustomFieldInput = Pick<CustomFieldDefinition, "field_key" | "field_label" | "field_type"> & { options?: string[] };
 export type SimulatedReply = "Si" | "No" | "Otra respuesta" | "Undelivered" | "Time Out";
 export type AddWorkflowActionNodeInput = { label: string; config: Record<string, string>; edgeLabel?: string | null };
@@ -253,6 +254,8 @@ interface CrmContextValue {
   deleteMember: (memberId: string) => void;
   createAiBot: (input: CreateAiBotInput) => void;
   toggleAiBot: (botId: string) => void;
+  deleteAiBot: (botId: string) => void;
+  updateAiBot: (botId: string, input: UpdateAiBotInput) => void;
   setIntegrationConnected: (provider: IntegrationProvider, connected: boolean, credentials?: Record<string, string>) => Promise<void>;
   addCustomField: (input: CreateCustomFieldInput) => void;
   updateCustomField: (fieldId: string, input: Omit<CreateCustomFieldInput, "field_key">) => void;
@@ -1031,7 +1034,21 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     toggleAiBot: (botId) => runMutation(async () => {
       const bot = data.aiBots.find((item) => item.id === botId);
       if (!bot) return;
-      const { error } = await createClient().from("ai_bots").update({ is_active: !bot.is_active }).eq("id", botId);
+      const { error } = await createClient().from("ai_bots").update({ is_active: !bot.is_active }).eq("id", botId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    // QA-004: borrado real vía RLS, filtrando estrictamente por tenant.
+    deleteAiBot: (botId) => runMutation(async () => {
+      const { error } = await createClient().from("ai_bots").delete().eq("id", botId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    updateAiBot: (botId, input) => runMutation(async () => {
+      const { error } = await createClient().from("ai_bots").update({
+        name: input.name.trim(),
+        product_line: input.product_line.trim(),
+        provider: input.provider,
+        system_prompt: input.system_prompt,
+      }).eq("id", botId).eq("tenant_id", requireTenant());
       if (error) throw new Error(error.message);
     }),
     setIntegrationConnected,
