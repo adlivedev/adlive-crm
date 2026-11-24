@@ -13,7 +13,7 @@ interface ChatTurn { role: "user" | "assistant"; content: string }
 const providerSchema = z.enum(["openai", "anthropic", "grok", "gemini"]);
 const responseText = z.string().trim().min(1).max(4000);
 
-class ProviderHttpError extends Error {
+export class ProviderHttpError extends Error {
   readonly status: number;
   constructor(status: number) {
     super(`El proveedor de IA respondió con estado ${status}.`);
@@ -77,18 +77,27 @@ async function generateWithGeminiModel(model: string, apiKey: string, systemProm
 
 /** Modelos en orden de preferencia. Algunas API keys (p. ej. las restringidas de
  * Google AI Studio) no tienen acceso a gemini-2.5-flash y responden 404; en ese
- * caso se reintenta con el alias gemini-flash-latest, que sí aceptan. */
+ * caso se reintenta con el alias gemini-flash-latest, que sí aceptan. Un 503
+ * (modelo saturado por alta demanda) se reintenta una vez con espera corta,
+ * porque Google lo reporta como temporal. */
 const GEMINI_MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-flash-latest"];
 
 async function generateWithGemini(apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
   let lastError: unknown = null;
   for (const model of GEMINI_MODEL_CANDIDATES) {
-    try {
-      return await generateWithGeminiModel(model, apiKey, systemPrompt, history);
-    } catch (error) {
-      lastError = error;
-      const notFound = error instanceof ProviderHttpError && error.status === 404;
-      if (!notFound) throw error;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await generateWithGeminiModel(model, apiKey, systemPrompt, history);
+      } catch (error) {
+        lastError = error;
+        if (!(error instanceof ProviderHttpError)) throw error;
+        if (error.status === 404) break; // la key no tiene acceso a este modelo: probar el siguiente
+        if (error.status === 503 && attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 2500));
+          continue;
+        }
+        throw error;
+      }
     }
   }
   throw lastError ?? new Error("Ningún modelo de Gemini disponible para esta API key.");

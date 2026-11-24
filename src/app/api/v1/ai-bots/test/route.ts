@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { generateBotAnswerForTest } from "@/shared/services/aiBotService";
+import { generateBotAnswerForTest, ProviderHttpError } from "@/shared/services/aiBotService";
 import { authErrorStatus, requireTenantAdminOrPlatformSuperadmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
@@ -40,6 +40,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const status = authErrorStatus(error);
     if (status === 500) console.error("[ai-bots/test] Error al probar el bot:", error);
-    return NextResponse.json({ error: status === 500 ? "No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida." : "No autorizado." }, { status });
+    const message = status !== 500 ? "No autorizado."
+      : error instanceof ProviderHttpError && error.status === 503
+        ? "El modelo de IA está saturado momentáneamente por alta demanda. Intenta de nuevo en unos segundos."
+        : "No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida.";
+    return NextResponse.json({ error: message }, { status });
   }
 }

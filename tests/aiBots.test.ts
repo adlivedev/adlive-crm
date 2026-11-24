@@ -104,7 +104,17 @@ vi.mock("@/shared/lib/serverAuth", () => ({
   requireTenantAdminOrPlatformSuperadmin: mocks.requireGuard,
   authErrorStatus: (error: unknown) => error instanceof Error && error.message === "FORBIDDEN" ? 403 : 500,
 }));
-vi.mock("@/shared/services/aiBotService", () => ({ generateBotAnswerForTest: mocks.generateAnswer }));
+vi.mock("@/shared/services/aiBotService", () => ({
+  generateBotAnswerForTest: mocks.generateAnswer,
+  ProviderHttpError: class ProviderHttpError extends Error {
+    readonly status: number;
+    constructor(status: number) {
+      super(`El proveedor de IA respondió con estado ${status}.`);
+      this.name = "ProviderHttpError";
+      this.status = status;
+    }
+  },
+}));
 
 import { POST } from "@/app/api/v1/ai-bots/test/route";
 
