@@ -27,7 +27,7 @@ const GUIDE_STEPS = [
   },
   {
     title: "Paso 3: Actívalo y pruébalo",
-    body: "Activa el bot con el interruptor: responderá automáticamente en las conversaciones en modo Bot dentro de «Conversaciones», y cualquier asesor puede tomar el control humano en 1 clic. Usa «Probar» para ensayar antes de activarlo.",
+    body: "Activa el bot con el interruptor: atenderá automáticamente a quien escriba por WhatsApp (las conversaciones nuevas arrancan en modo Bot) y responderá con su entrenamiento en «Conversaciones». Cualquier asesor puede tomar el control humano en 1 clic con el selector «Modo de atención». Usa «Probar» para ensayar antes de activarlo.",
   },
 ];
 
