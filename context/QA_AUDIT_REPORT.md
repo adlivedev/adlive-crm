@@ -118,3 +118,33 @@ qa_contacts=0, qa_workflows=0, qa_bots=0, qa_users=0, cierto_members=1 (solo el 
 ```
 
 Cambios de esta auditoría: **ninguno en código de aplicación** (solo documentación). No se tocó producción salvo los artefactos `[QA-TEST]` ya eliminados.
+
+---
+
+## 7. Re-verificación Post-Correcciones
+
+**Fecha:** 2026-11-24 · **Despliegues:** Sprint 2 (`fd31706`, dpl_4Arn5NWHr95WMyRveZju9FJTg4N2, READY) y Sprint 3 (`ddb0506`, dpl_Aqm2HecQeuQTw7z2THC1GM9Nkgqe, READY) en `https://adlive-crm.vercel.app`.
+
+### 7.1 Flujo 3 — Landing pública + formulario embebido + lead con UTM ✅ PASÓ
+
+- `GET /l/cierto/captacion-hero?utm_source=meta_ads&utm_campaign=plan50gb` → **200**.
+- `GET /embed/cierto/form?theme=dark` → **200**; script embebido `GET /api/v1/embed/cierto/form.js` → **200**.
+- `POST /api/v1/55cc06d8-…/webhooks/lead-web` con token válido y `utm_source=meta_ads`, `utm_campaign=plan50gb` → **200** `{ok:true, out_contact_id, out_opportunity_id}`.
+- Verificación SQL: contacto `[QA-TEST] Lead E2E` creado con `lead_source=meta_ads`, `utm_source=meta_ads`, `utm_campaign=plan50gb` y oportunidad creada en etapa **Interesado** del pipeline principal.
+- Limpieza ejecutada: oportunidad, actividad y contacto eliminados; re-verificación SQL = 0 residuos.
+
+### 7.2 Flujo 1 — Workflow crear → publicar → eliminar ⏳ PENDIENTE (requiere sesión)
+
+Las pruebas de creación/publicación/eliminación de workflows requieren sesión autenticada de owner/admin de CIERTO o superadmin. Las contraseñas no se documentan por política (`Regla de datos` de esta auditoría). Cobertura previa: unitarios `tests/workflowEngine.test.ts` y `tests/workflowExecution.test.ts` (181/181 en verde). **Acción pendiente:** ejecutar con un login de prueba en `/flujos`.
+
+### 7.3 Flujo 2 — Invitar agente `[QA-TEST]` y verificar sus 5 módulos ⏳ PENDIENTE (requiere sesión)
+
+Invitar un agente exige sesión de owner/admin o superadmin (override QA-003), y el login del agente invitado requiere completar el magiclink de invitación en el correo. Pendiente de credenciales de prueba. Cobertura previa: `tests/teamInvite.test.ts` y `tests/rbacApi.test.ts`. **Acción pendiente:** ejecutar con superadmin en `/equipo` y verificar redirección de `/ajustes` y `/equipo` para el rol `agent`.
+
+### 7.4 Flujo 4 — Validación de proveedor sin API key y mini-chat de prueba ⏳ PENDIENTE (requiere sesión)
+
+CIERTO **sí tiene** una API key de Gemini conectada (`tenant_integrations_vault.ai_gemini`, `is_connected=true`), así que ambas partes del flujo son ejecutables con sesión: (a) crear bot con proveedor sin key → badge «Sin API Key» + guardado bloqueado; (b) bot Gemini → «Probar» con mini-chat real + «Eliminar» con confirmación. El endpoint `POST /api/v1/ai-bots/test` ya cuenta con cobertura de autorización y errores en `tests/aiBots.test.ts`. **Acción pendiente:** ejecutar con sesión en `/bots-ia`.
+
+### 7.5 Residuos `[QA-TEST]`
+
+Verificación SQL posterior: `contacts=0, workflows=0, ai_bots=0, tenant_members(vía auth.users qa-test)=0, opportunities=0`.
