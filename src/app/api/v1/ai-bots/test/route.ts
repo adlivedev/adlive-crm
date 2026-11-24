@@ -39,6 +39,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ reply }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = authErrorStatus(error);
+    if (status === 500) console.error("[ai-bots/test] Error al probar el bot:", error);
     return NextResponse.json({ error: status === 500 ? "No se pudo probar el bot. Verifica que el proveedor tenga una API Key válida." : "No autorizado." }, { status });
   }
 }

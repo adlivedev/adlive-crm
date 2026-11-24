@@ -13,9 +13,18 @@ interface ChatTurn { role: "user" | "assistant"; content: string }
 const providerSchema = z.enum(["openai", "anthropic", "grok", "gemini"]);
 const responseText = z.string().trim().min(1).max(4000);
 
+class ProviderHttpError extends Error {
+  readonly status: number;
+  constructor(status: number) {
+    super(`El proveedor de IA respondió con estado ${status}.`);
+    this.name = "ProviderHttpError";
+    this.status = status;
+  }
+}
+
 async function providerFetch(url: string, init: RequestInit): Promise<unknown> {
   const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(30_000) });
-  if (!response.ok) throw new Error(`El proveedor de IA respondió con estado ${response.status}.`);
+  if (!response.ok) throw new ProviderHttpError(response.status);
   return response.json() as Promise<unknown>;
 }
 
@@ -52,8 +61,7 @@ async function generateWithAnthropic(apiKey: string, systemPrompt: string, histo
   return responseText.parse(parsed.content.filter((item) => item.type === "text").map((item) => item.text ?? "").join("\n")).slice(0, 1500);
 }
 
-async function generateWithGemini(apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
-  const model = "gemini-2.5-flash";
+async function generateWithGeminiModel(model: string, apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
   const json = await providerFetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: "POST",
     headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
@@ -65,6 +73,25 @@ async function generateWithGemini(apiKey: string, systemPrompt: string, history:
   });
   const parsed = z.object({ candidates: z.array(z.object({ content: z.object({ parts: z.array(z.object({ text: z.string().optional() })) }) })).min(1) }).parse(json);
   return responseText.parse(parsed.candidates[0]!.content.parts.map((part) => part.text ?? "").join("\n")).slice(0, 1500);
+}
+
+/** Modelos en orden de preferencia. Algunas API keys (p. ej. las restringidas de
+ * Google AI Studio) no tienen acceso a gemini-2.5-flash y responden 404; en ese
+ * caso se reintenta con el alias gemini-flash-latest, que sí aceptan. */
+const GEMINI_MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-flash-latest"];
+
+async function generateWithGemini(apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
+  let lastError: unknown = null;
+  for (const model of GEMINI_MODEL_CANDIDATES) {
+    try {
+      return await generateWithGeminiModel(model, apiKey, systemPrompt, history);
+    } catch (error) {
+      lastError = error;
+      const notFound = error instanceof ProviderHttpError && error.status === 404;
+      if (!notFound) throw error;
+    }
+  }
+  throw lastError ?? new Error("Ningún modelo de Gemini disponible para esta API key.");
 }
 
 async function generateBotText(provider: SupportedProvider, tenantId: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
