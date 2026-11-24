@@ -79,8 +79,9 @@ async function generateWithGeminiModel(model: string, apiKey: string, systemProm
  * Google AI Studio) no tienen acceso a gemini-2.5-flash y responden 404; en ese
  * caso se reintenta con el alias gemini-flash-latest, que sí aceptan. Un 503
  * (modelo saturado por alta demanda) se reintenta una vez con espera corta,
- * porque Google lo reporta como temporal. */
-const GEMINI_MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-flash-latest"];
+ * porque Google lo reporta como temporal; si persiste, se prueba la variante
+ * gemini-flash-lite-latest, que suele tener menos carga. */
+const GEMINI_MODEL_CANDIDATES = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-flash-lite-latest"];
 
 async function generateWithGemini(apiKey: string, systemPrompt: string, history: ChatTurn[]): Promise<string> {
   let lastError: unknown = null;
@@ -92,9 +93,12 @@ async function generateWithGemini(apiKey: string, systemPrompt: string, history:
         lastError = error;
         if (!(error instanceof ProviderHttpError)) throw error;
         if (error.status === 404) break; // la key no tiene acceso a este modelo: probar el siguiente
-        if (error.status === 503 && attempt === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 2500));
-          continue;
+        if (error.status === 503) {
+          if (attempt === 0) {
+            await new Promise((resolve) => setTimeout(resolve, 2500));
+            continue;
+          }
+          break; // saturación persistente: probar el siguiente modelo
         }
         throw error;
       }
