@@ -22,6 +22,7 @@ import { useCrm } from "@/shared/services/crmStore";
 import { AttributionPanel } from "./AttributionPanel";
 import { CommercialTabs } from "./CommercialTabs";
 import { ContactDataPanel } from "./ContactDataPanel";
+import { ContactIdentityPanel } from "./ContactIdentityPanel";
 import { ConversationPanel } from "./ConversationPanel";
 import { CustomFieldsPanel } from "./CustomFieldsPanel";
 import { OpportunitiesPanel } from "./OpportunitiesPanel";
@@ -91,6 +92,7 @@ export function ContactDetailView({ contactId }: { contactId: string }) {
       <div className="grid min-w-0 grid-cols-1 items-start gap-4 sm:gap-6 lg:grid-cols-12">
         <div className="flex min-w-0 flex-col gap-4 lg:col-span-4 xl:col-span-3">
           <ContactDataPanel contact={contact} />
+          <ContactIdentityPanel contact={contact} />
           <AttributionPanel contact={contact} />
           <CustomFieldsPanel contact={contact} />
           <OpportunitiesPanel contact={contact} />
