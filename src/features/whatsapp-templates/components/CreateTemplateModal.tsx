@@ -12,6 +12,7 @@ import { useRef, useState } from "react";
 
 import { Modal } from "@/features/contacts/components/Modal";
 import { Button } from "@/shared/components/ui/Button";
+import { createClient } from "@/shared/lib/supabase/client";
 import { useCrm } from "@/shared/services/crmStore";
 import type { WhatsAppTemplateButton } from "@/shared/types/database";
 
@@ -33,6 +34,7 @@ const LANGUAGE_OPTIONS = [
 const HEADER_OPTIONS = [
   { value: "NONE", label: "Sin header" },
   { value: "TEXT", label: "Texto" },
+  { value: "IMAGE", label: "Imagen" },
 ] as const;
 
 interface SelectFieldProps {
@@ -71,13 +73,14 @@ export interface CreateTemplateModalProps {
 }
 
 export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps) {
-  const { createWhatsappTemplate } = useCrm();
+  const { createWhatsappTemplate, activeTenant } = useCrm();
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState<(typeof CATEGORY_OPTIONS)[number]["value"]>("MARKETING");
   const [language, setLanguage] = useState<(typeof LANGUAGE_OPTIONS)[number]["value"]>("es");
   const [headerType, setHeaderType] = useState<(typeof HEADER_OPTIONS)[number]["value"]>("NONE");
   const [headerContent, setHeaderContent] = useState("");
+  const [headerImage, setHeaderImage] = useState<{ url: string; name: string } | null>(null);
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<WhatsAppTemplateButton[]>([]);
@@ -86,6 +89,25 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
   const [isSaving, setIsSaving] = useState(false);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const headerImageRef = useRef<HTMLInputElement>(null);
+
+  /* Sube la imagen del header al bucket del tenant; Meta la reenvía a su media server en el servidor. */
+  const handleHeaderImage = async (file: File) => {
+    setError(null);
+    if (!file.type.startsWith("image/")) { setError("Solo se permiten imágenes (JPG o PNG)."); return; }
+    if (file.size > 2 * 1024 * 1024) { setError("La imagen supera el límite de 2 MB."); return; }
+    if (!activeTenant) { setError("No hay un workspace activo."); return; }
+    try {
+      const supabase = createClient();
+      const path = `${activeTenant.id}/${crypto.randomUUID()}-${file.name.replace(/[^\w.-]/g, "_")}`;
+      const { error: uploadError } = await supabase.storage.from("chat-media").upload(path, file, { cacheControl: "31536000", upsert: false });
+      if (uploadError) throw new Error(uploadError.message);
+      const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
+      setHeaderImage({ url: data.publicUrl, name: file.name });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "No se pudo subir la imagen del header.");
+    }
+  };
 
   const variablesCount = countVariables(body);
 
@@ -142,6 +164,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
     setLanguage("es");
     setHeaderType("NONE");
     setHeaderContent("");
+    setHeaderImage(null);
     setBody("");
     setFooter("");
     setButtons([]);
@@ -167,6 +190,10 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
       setError("El header de tipo Texto necesita contenido.");
       return;
     }
+    if (headerType === "IMAGE" && !headerImage) {
+      setError("El header de tipo Imagen necesita que subas una imagen (JPG o PNG, máx. 2 MB).");
+      return;
+    }
     setIsSaving(true);
     setError(null);
     try {
@@ -179,6 +206,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
         variables_count: variablesCount,
         header_type: headerType,
         header_content: headerType === "TEXT" ? headerContent.trim() : null,
+        default_header_media_url: headerType === "IMAGE" ? headerImage?.url ?? null : null,
         buttons: sanitizeButtons(buttons),
         variable_mappings: variableMappings,
       });
@@ -247,6 +275,45 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
                 placeholder="¡Oferta especial para ti!"
                 className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
               />
+            </div>
+          ) : null}
+          {headerType === "IMAGE" ? (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium text-adlive-text-main">Imagen del header</span>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="secondary" size="sm" onClick={() => headerImageRef.current?.click()}>
+                  {headerImage ? "Cambiar imagen" : "Subir imagen"}
+                </Button>
+                <input
+                  ref={headerImageRef}
+                  type="file"
+                  accept="image/jpeg,image/png"
+                  className="hidden"
+                  aria-label="Seleccionar imagen del header"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void handleHeaderImage(file);
+                    event.target.value = "";
+                  }}
+                />
+                {headerImage ? (
+                  <span className="flex min-w-0 items-center gap-2 text-xs text-adlive-text-muted">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={headerImage.url} alt="" className="h-9 w-9 rounded-lg object-cover" />
+                    <span className="max-w-40 truncate">{headerImage.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setHeaderImage(null)}
+                      aria-label="Quitar imagen del header"
+                      className="cursor-pointer text-adlive-text-muted hover:text-adlive-danger"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ) : (
+                  <span className="text-xs text-adlive-text-muted">JPG o PNG · máx. 2 MB · se envía a Meta para aprobación</span>
+                )}
+              </div>
             </div>
           ) : null}
 

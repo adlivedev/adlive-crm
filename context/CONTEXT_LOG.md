@@ -56,6 +56,16 @@
 
 ---
 
+### [Iteración 23 - Completado FASE 1: mensaje interactivo WOM con vista previa, header de imagen en plantillas Meta, disparador SLA y filtro UTM de workflows]
+- **Mensaje interactivo tipo WOM (chat):** nuevo botón en `ChatComposer.tsx` (icono de cursor) que abre el constructor: cuerpo (≤1024), pie opcional (≤60), imagen de cabecera opcional (sube al bucket `chat-media`, máx. 2 MB, helper `uploadChatImage` reutilizado por el adjunto), y hasta 3 botones de respuesta rápida o 1 botón CTA con enlace, con **vista previa en vivo estilo burbuja de WhatsApp** (formato `*negrita*` renderizado, botones apilados con divisor). Envío real vía `sendMetaInteractive` (payload oficial `type: "interactive"`, `action.buttons` reply máx. 3 títulos ≤20 o `action.name: "cta_url"`) en `metaWhatsAppClient.ts`; route `/api/v1/whatsapp/send` acepta `msg_type: "interactive"` con validación zod (máx. 1 CTA, títulos ≤20), valida la ventana de 24 h igual que el texto y persiste el historial con un resumen legible del cuerpo + botones. `SendMessageInput` ampliado en `crmStore.tsx`/`crmActions.ts`; `MessageType` suma `"interactive"`.
+- **Header de imagen en plantillas (Meta):** opción «Imagen» en el selector de header de `CreateTemplateModal.tsx` (subida al bucket del tenant, JPG/PNG ≤2 MB, thumbnail con quitar). En el servidor, `uploadMetaMedia` descarga la URL pública y la reenvía a `POST /{phone_number_id}/media` (form-data) para obtener el `id`; `createMetaTemplate` envía el componente `HEADER/IMAGE` con `example.header_handle` (requisito de Meta Cloud API). Route `/api/v1/whatsapp/templates` permite `header_type: "IMAGE"` y exige `default_header_media_url`.
+- **Disparador SLA en workflows:** nuevo `trigger_type: "sla_no_response"` («SLA: sin respuesta del agente») con `sla_minutes` sembrado (default 60, editable 5–1440 en el panel del nodo disparador). `runSlaWorkflowsSweep` en `workflowExecutionService.ts` corre cada tick del cron en `process-jobs` (antes de la cola, nunca bloquea): inscribe los contactos cuya conversación en modo humano supera el SLA con `needs_reply` (deduplica por ventana: no repite si ya hubo inscripción desde el último mensaje entrante). Puede terminar en «Activar Bot IA», plantilla WhatsApp, Round Robin, etc.
+- **Filtro Campaña/UTM verificado:** `triggerFilterMatches` con `campania` ya comparaba `utmCampaign` contra `filtro_valor` y la UI ya lo exponía; se corrigió la restauración del panel de edición que descartaba el filtro guardado `formulario`.
+- **Verificación:** 216/216 pruebas en 30 archivos (nuevas: siembra del disparador SLA con `sla_minutes` por defecto), `tsc --noEmit` limpio, ESLint sin advertencias y build exitoso.
+- **Nota de despliegue:** el barrido SLA depende del cron de `process-jobs`; en plan Hobby sigue inerte salvo scheduler externo con Bearer `CRON_SECRET` (igual que el resumen diario).
+
+---
+
 ## Historial de Iteraciones
 
 ### [Iteración 20 - El bot ahora atiende automáticamente: conversaciones nuevas en modo Bot por defecto]

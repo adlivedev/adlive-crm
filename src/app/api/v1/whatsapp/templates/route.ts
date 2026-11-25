@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { createMetaTemplate, listMetaTemplates } from "@/shared/lib/metaWhatsAppClient";
+import { createMetaTemplate, listMetaTemplates, uploadMetaMedia } from "@/shared/lib/metaWhatsAppClient";
 import { authErrorStatus, requireTenantAdmin } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
@@ -16,7 +16,7 @@ const templateSchema = z.object({
   tenantId: z.string().uuid(), name: z.string().regex(/^[a-z0-9_]{3,150}$/),
   category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]), language: z.string().trim().min(2).max(20),
   body_text: z.string().trim().min(1).max(1024), footer_text: z.string().trim().max(60).nullable().optional(),
-  variables_count: z.number().int().min(0).max(20), header_type: z.enum(["NONE", "TEXT"]).default("NONE"),
+  variables_count: z.number().int().min(0).max(20), header_type: z.enum(["NONE", "TEXT", "IMAGE"]).default("NONE"),
   header_content: z.string().trim().max(60).nullable().optional(), buttons: z.array(buttonSchema).max(10).default([]),
   variable_mappings: z.array(variableMappingSchema).max(20).default([]),
   default_header_media_url: z.string().url().max(2048).nullable().optional(),
@@ -26,7 +26,15 @@ export async function POST(request: Request) {
   try {
     const input = templateSchema.parse(await request.json());
     await requireTenantAdmin(input.tenantId);
-    const metaId = await createMetaTemplate(input.tenantId, input);
+    let headerMediaHandle: string | null = null;
+    if (input.header_type === "IMAGE") {
+      if (!input.default_header_media_url) {
+        return NextResponse.json({ error: "El header de tipo Imagen requiere subir una imagen." }, { status: 400 });
+      }
+      const mime = input.default_header_media_url.toLowerCase().includes(".png") ? "image/png" : "image/jpeg";
+      headerMediaHandle = await uploadMetaMedia(input.tenantId, input.default_header_media_url, mime);
+    }
+    const metaId = await createMetaTemplate(input.tenantId, { ...input, headerMediaHandle });
     const { tenantId: _tenantId, ...template } = input;
     const { data, error } = await createAdminClient().from("whatsapp_templates").insert({
       ...template, tenant_id: input.tenantId, meta_template_id: metaId, status: "PENDING", rejection_reason: "NONE",

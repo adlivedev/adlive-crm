@@ -17,6 +17,7 @@ export const TRIGGER_OPTIONS: Array<{ value: WorkflowTriggerType; label: string 
   { value: "manual_enrollment", label: TRIGGER_LABELS.manual_enrollment },
   { value: "contact_created", label: TRIGGER_LABELS.contact_created },
   { value: "channel_message_received", label: TRIGGER_LABELS.channel_message_received },
+  { value: "sla_no_response", label: TRIGGER_LABELS.sla_no_response },
 ];
 
 export function workflowStatusTone(status: WorkflowStatus): BadgeTone {

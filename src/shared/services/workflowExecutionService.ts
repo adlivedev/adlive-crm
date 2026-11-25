@@ -127,6 +127,47 @@ export async function executeWorkflowsForFirstInboundMessage(tenantId: string, w
   await executeWorkflowsForEvent({ tenantId, contactId: conversation.contact_id, event: "first_message" });
 }
 
+/**
+ * Barrido SLA (disparador «SLA: sin respuesta del agente»): evalúa cada tick
+ * del cron todos los workflows publicados con trigger_type sla_no_response,
+ * inscribiendo los contactos cuya conversación humana superó el tiempo SLA
+ * configurado sin respuesta. No repite la inscripción dentro de la misma
+ * ventana de espera (created_at >= last_inbound_at de la conversación).
+ */
+export async function runSlaWorkflowsSweep(): Promise<{ workflows: number; enrolled: number }> {
+  const admin = createAdminClient();
+  const { data: workflows } = await admin.from("workflows").select("*")
+    .eq("status", "Published").eq("trigger_type", "sla_no_response");
+  let enrolled = 0;
+  for (const workflow of (workflows ?? []) as Workflow[]) {
+    const triggerNode = workflow.canvas_definition.nodes.find((node) => node.type === "trigger");
+    const minutes = Math.min(Math.max(Math.round(Number(triggerNode?.config.sla_minutes ?? "60")) || 60, 5), 1440);
+    const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
+    const { data: stale } = await admin.from("conversations").select("id, contact_id, last_inbound_at")
+      .eq("tenant_id", workflow.tenant_id).eq("handler_mode", "human").eq("needs_reply", true)
+      .lte("last_inbound_at", cutoff);
+    for (const conversation of stale ?? []) {
+      const { data: recent } = await admin.from("workflow_enrollments").select("id")
+        .eq("workflow_id", workflow.id).eq("contact_id", conversation.contact_id)
+        .gte("created_at", conversation.last_inbound_at).limit(1);
+      if ((recent?.length ?? 0) > 0) continue;
+      const { data: contactRow } = await admin.from("contacts").select("*")
+        .eq("id", conversation.contact_id).eq("tenant_id", workflow.tenant_id).maybeSingle();
+      if (!contactRow) continue;
+      try {
+        await executeWorkflowCanvas(admin, workflow, contactRow as Contact);
+        enrolled += 1;
+      } catch (error) {
+        console.error("workflow.sla.failed", JSON.stringify({
+          workflowId: workflow.id, contactId: conversation.contact_id,
+          message: error instanceof Error ? error.message.slice(0, 300) : "unknown error",
+        }));
+      }
+    }
+  }
+  return { workflows: (workflows ?? []).length, enrolled };
+}
+
 /* ----------------------------------------------------------------------------
  * Ejecución del lienzo (recorrido lineal desde el disparador)
  * -------------------------------------------------------------------------- */

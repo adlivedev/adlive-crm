@@ -28,7 +28,7 @@ function emptyState(): CrmState {
 }
 
 describe("TC-WF-TRIGGER — QA-001: siembra del nodo disparador al crear el workflow", () => {
-  it.each(["manual_enrollment", "contact_created", "channel_message_received"] as WorkflowTriggerType[])(
+  it.each(["manual_enrollment", "contact_created", "channel_message_received", "sla_no_response"] as WorkflowTriggerType[])(
     "el workflow nuevo nace con el nodo disparador «%s» sembrado",
     (triggerType) => {
       const state = createWorkflow(emptyState(), "t-1", { name: "Flujo de prueba", trigger_type: triggerType });
@@ -40,6 +40,13 @@ describe("TC-WF-TRIGGER — QA-001: siembra del nodo disparador al crear el work
       expect(workflow.canvas_definition.edges).toHaveLength(0);
     },
   );
+
+  it("el disparador SLA siembra sla_minutes con valor por defecto de 60", () => {
+    const canvas = seedTriggerCanvas("sla_no_response", "n-sla");
+    const node = canvas.nodes[0]!;
+    expect(node.label).toBe("SLA: sin respuesta del agente");
+    expect(node.config.sla_minutes).toBe("60");
+  });
 
   it("seedTriggerCanvas genera un lienzo con el disparador en el origen", () => {
     const canvas = seedTriggerCanvas("channel_message_received", "n-trigger");

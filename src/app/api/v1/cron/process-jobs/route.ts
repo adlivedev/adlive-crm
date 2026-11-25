@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { nextRetryRunAfter } from "@/shared/lib/backgroundJobs";
 import { emailSlaAlert, sendDailySummary } from "@/shared/services/conversationAlertService";
+import { runSlaWorkflowsSweep } from "@/shared/services/workflowExecutionService";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -18,6 +19,14 @@ export async function GET(request: Request) {
   const auth = request.headers.get("authorization");
   if (!expected || auth !== `Bearer ${expected}`) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
+  }
+
+  /* Barrido de workflows con disparador SLA (antes de la cola; nunca bloquea los trabajos). */
+  try {
+    const sweep = await runSlaWorkflowsSweep();
+    if (sweep.enrolled > 0) console.info("workflow.sla.sweep", JSON.stringify(sweep));
+  } catch (cause) {
+    console.error("workflow.sla.sweep.failed", cause instanceof Error ? cause.message : "unknown error");
   }
 
   const admin = createAdminClient();

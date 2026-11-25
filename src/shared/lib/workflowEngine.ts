@@ -25,6 +25,7 @@ export const TRIGGER_NODE_LABELS: Record<WorkflowTriggerType, string> = {
   manual_enrollment: "Inscripción manual",
   contact_created: "Contacto creado / Formulario Web",
   channel_message_received: "Mensaje recibido en WhatsApp",
+  sla_no_response: "SLA: sin respuesta del agente",
 };
 
 /** Configuración descriptiva sembrada en el nodo disparador según su tipo. */
@@ -34,6 +35,8 @@ export function triggerNodeConfig(triggerType: WorkflowTriggerType): Record<stri
       return { origen: "Se dispara al crear un contacto desde formulario o landing" };
     case "channel_message_received":
       return { canal: "WhatsApp", origen: "Se dispara al llegar el primer mensaje del lead" };
+    case "sla_no_response":
+      return { origen: "Se dispara cuando una conversación humana supera el tiempo SLA sin respuesta", sla_minutes: "60" };
     default:
       return { origen: "Inscripción manual desde Contactos" };
   }

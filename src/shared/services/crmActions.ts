@@ -333,6 +333,11 @@ export interface SendMessageInput {
   body: string;
   msg_type?: MessageType;
   template_name?: string | null;
+  media_url?: string | null;
+  interactive?: {
+    body: string; footer?: string; header_image_url?: string | null;
+    buttons: Array<{ kind: "reply" | "cta_url"; title: string; url?: string }>;
+  };
   sender_member_id?: string | null;
 }
 

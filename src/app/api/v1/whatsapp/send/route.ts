@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { sendMetaImage, sendMetaTemplate, sendMetaText } from "@/shared/lib/metaWhatsAppClient";
+import { sendMetaImage, sendMetaInteractive, sendMetaTemplate, sendMetaText } from "@/shared/lib/metaWhatsAppClient";
 import { authErrorStatus, requireUser } from "@/shared/lib/serverAuth";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { buildTemplateVariables, isWithinMetaWindow } from "@/shared/lib/whatsapp";
 
 export const runtime = "nodejs";
+const interactiveSchema = z.object({
+  body: z.string().trim().min(1).max(1024), footer: z.string().trim().max(60).optional(),
+  header_image_url: z.string().url().max(2048).nullable().optional(),
+  buttons: z.array(z.object({
+    kind: z.enum(["reply", "cta_url"]), title: z.string().trim().min(1).max(25), url: z.string().url().max(2048).optional(),
+  })).min(1).max(3),
+});
 const inputSchema = z.object({
   conversationId: z.string().uuid(), body: z.string().trim().min(1).max(4096),
-  msg_type: z.enum(["text", "template", "image"]).default("text"), template_name: z.string().max(150).nullable().optional(),
+  msg_type: z.enum(["text", "template", "image", "interactive"]).default("text"), template_name: z.string().max(150).nullable().optional(),
   media_url: z.string().url().max(2048).nullable().optional(),
+  interactive: interactiveSchema.optional(),
 });
 
 export async function POST(request: Request) {
@@ -28,6 +36,14 @@ export async function POST(request: Request) {
     if (!member || !contact) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
     if (input.msg_type === "image" && !input.media_url) {
       return NextResponse.json({ error: "Falta media_url para enviar la imagen." }, { status: 400 });
+    }
+    if (input.msg_type === "interactive") {
+      if (!input.interactive) return NextResponse.json({ error: "Faltan los datos del mensaje interactivo." }, { status: 400 });
+      const ctaCount = input.interactive.buttons.filter((button) => button.kind === "cta_url").length;
+      if (ctaCount > 1) return NextResponse.json({ error: "Solo se permite un botón con enlace (CTA)." }, { status: 400 });
+      if (input.interactive.buttons.some((button) => button.kind === "reply" && button.title.length > 20)) {
+        return NextResponse.json({ error: "Los botones de respuesta deben tener máximo 20 caracteres." }, { status: 400 });
+      }
     }
     if (input.msg_type !== "template" && !isWithinMetaWindow(conversation.last_inbound_at, new Date())) {
       return NextResponse.json({ error: "La ventana de 24 horas está cerrada. Usa una plantilla aprobada." }, { status: 409 });
@@ -71,7 +87,12 @@ export async function POST(request: Request) {
       ? await sendMetaTemplate(conversation.tenant_id, recipientPhone, template, variables)
       : input.msg_type === "image"
         ? await sendMetaImage(conversation.tenant_id, recipientPhone, input.media_url!, input.body)
-        : await sendMetaText(conversation.tenant_id, recipientPhone, input.body);
+        : input.msg_type === "interactive"
+          ? await sendMetaInteractive(conversation.tenant_id, recipientPhone, {
+              body: input.interactive!.body, footer: input.interactive!.footer ?? null,
+              headerImageUrl: input.interactive!.header_image_url ?? null, buttons: input.interactive!.buttons,
+            })
+          : await sendMetaText(conversation.tenant_id, recipientPhone, input.body);
     await admin.from("messages").update({ wa_message_id: waMessageId, status: "sent" }).eq("id", pending.id);
     const now = new Date().toISOString();
     await admin.from("conversations").update({ last_message_at: now, last_message_preview: preview.slice(0, 120), last_message_media_type: input.msg_type, needs_reply: false, unread_count: 0 }).eq("id", conversation.id);

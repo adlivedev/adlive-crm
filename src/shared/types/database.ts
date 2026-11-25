@@ -26,6 +26,7 @@ export type MessageType =
   | "text"
   | "template"
   | "image"
+  | "interactive"
   | "audio"
   | "video"
   | "document"
@@ -294,7 +295,8 @@ export type WorkflowStatus = "Draft" | "Published";
 export type WorkflowTriggerType =
   | "manual_enrollment"
   | "contact_created"
-  | "channel_message_received";
+  | "channel_message_received"
+  | "sla_no_response";
 
 export interface WorkflowNode {
   id: string;

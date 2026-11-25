@@ -49,6 +49,7 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
   const [stageId, setStageId] = useState("");
   const [filterType, setFilterType] = useState<TriggerFilterType>("ninguno");
   const [filterValue, setFilterValue] = useState("");
+  const [slaMinutes, setSlaMinutes] = useState("60");
   const [feedback, setFeedback] = useState("");
 
   const approvedTemplates = templates.filter((template) => template.status === "APPROVED");
@@ -62,8 +63,9 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
       setTemplateName(panel.node.config.template ?? approvedTemplates[0]?.name ?? "");
       setStageId(panel.node.config.stage_id ?? openStages[0]?.id ?? "");
       const tipo = panel.node.config.filtro_tipo ?? "ninguno";
-      setFilterType(tipo === "campania" || tipo === "landing" || tipo === "etiqueta" ? tipo : "ninguno");
+      setFilterType(tipo === "campania" || tipo === "landing" || tipo === "etiqueta" || tipo === "formulario" ? tipo : "ninguno");
       setFilterValue(panel.node.config.filtro_valor ?? "");
+      setSlaMinutes(panel.node.config.sla_minutes ?? "60");
     } else {
       setActionType("Enviar WhatsApp");
       setTemplateName(approvedTemplates[0]?.name ?? "");
@@ -94,8 +96,17 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
     if (panel.mode === "edit" && editNode) {
       const config: Record<string, string> = {};
       if (editNode.type === "trigger") {
-        config.filtro_tipo = filterType;
-        if (filterType !== "ninguno" && filterValue.trim()) config.filtro_valor = filterValue.trim();
+        if (workflow.trigger_type === "sla_no_response") {
+          const minutes = Number(slaMinutes);
+          if (!Number.isFinite(minutes) || minutes < 5 || minutes > 1440) {
+            setFeedback("El tiempo SLA debe estar entre 5 y 1440 minutos.");
+            return;
+          }
+          config.sla_minutes = String(Math.round(minutes));
+        } else {
+          config.filtro_tipo = filterType;
+          if (filterType !== "ninguno" && filterValue.trim()) config.filtro_valor = filterValue.trim();
+        }
       }
       if (needsTemplate && templateName) config.template = templateName;
       if (needsStage && stageValue) {
@@ -216,7 +227,27 @@ export function NodeEditPanel({ workflow, panel, onClose, onSaved, onSimulate }:
             </div>
           ) : null}
 
-          {editNode?.type === "trigger" ? (
+          {editNode?.type === "trigger" && workflow.trigger_type === "sla_no_response" ? (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="panel-sla-minutes" className="text-sm font-medium text-adlive-text-main">
+                Tiempo SLA sin respuesta (minutos)
+              </label>
+              <input
+                id="panel-sla-minutes"
+                type="number"
+                min={5}
+                max={1440}
+                value={slaMinutes}
+                onChange={(event) => setSlaMinutes(event.target.value)}
+                className="h-10 w-full rounded-xl border border-adlive-border bg-white px-3 text-sm text-adlive-text-main transition-colors duration-150 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
+              />
+              <p className="text-xs text-adlive-text-muted">
+                Se dispara cuando una conversación en modo humano supera este tiempo con el cliente esperando respuesta (entre 5 y 1440 minutos).
+              </p>
+            </div>
+          ) : null}
+
+          {editNode?.type === "trigger" && workflow.trigger_type !== "sla_no_response" ? (
             <>
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="panel-filter-type" className="text-sm font-medium text-adlive-text-main">
