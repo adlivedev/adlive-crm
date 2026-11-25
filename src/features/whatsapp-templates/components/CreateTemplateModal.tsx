@@ -7,7 +7,7 @@
  * derecha la vista previa en vivo estilo WhatsApp. Reutiliza el Modal de M3.
  */
 
-import { Bold, Code, Italic, Plus, Strikethrough } from "lucide-react";
+import { Bold, Code, Italic, Strikethrough } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Modal } from "@/features/contacts/components/Modal";
@@ -81,6 +81,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
   const [body, setBody] = useState("");
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<WhatsAppTemplateButton[]>([]);
+  const [variableMappings, setVariableMappings] = useState<Array<{ slot: string; label: string; crmField: string }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -103,8 +104,20 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
     });
   };
 
-  const addVariable = () => {
-    insertAtCursor(`{{${variablesCount + 1}}}`);
+  /** Inserta una variable del CRM: en Meta viaja {{N}}; el CRM la rellena al enviar. */
+  const CRM_VARIABLES = [
+    { label: "Nombre del contacto", crmField: "first_name" },
+    { label: "Nombre completo", crmField: "full_name" },
+    { label: "Teléfono", crmField: "phone_e164" },
+    { label: "Correo electrónico", crmField: "email" },
+    { label: "Campaña / Origen", crmField: "lead_source" },
+    { label: "Nombre de la empresa", crmField: "company_name" },
+  ] as const;
+
+  const addVariable = (label: string, crmField: string) => {
+    const slotNumber = variablesCount + 1;
+    insertAtCursor(`{{${slotNumber}}}`);
+    setVariableMappings((current) => [...current, { slot: `{{${slotNumber}}}`, label, crmField }]);
   };
 
   /** Envuelve la selección actual con el marcador de formato de WhatsApp. */
@@ -132,6 +145,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
     setBody("");
     setFooter("");
     setButtons([]);
+    setVariableMappings([]);
     setError(null);
     onClose();
   };
@@ -166,6 +180,7 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
         header_type: headerType,
         header_content: headerType === "TEXT" ? headerContent.trim() : null,
         buttons: sanitizeButtons(buttons),
+        variable_mappings: variableMappings,
       });
       handleClose();
     } catch (caught) {
@@ -267,14 +282,28 @@ export function CreateTemplateModal({ open, onClose }: CreateTemplateModalProps)
               className="w-full resize-y rounded-xl border border-adlive-border bg-white px-4 py-3 text-sm focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
             />
             <div className="flex items-center justify-between text-xs text-adlive-text-muted">
-              <button
-                type="button"
-                onClick={addVariable}
-                className="inline-flex items-center gap-1 rounded-lg border border-adlive-primary/30 bg-adlive-primary-light px-2 py-1 font-medium text-adlive-primary transition-colors hover:bg-adlive-primary/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-adlive-primary"
+              <label htmlFor="template-variable" className="sr-only">Insertar variable del CRM</label>
+              <select
+                id="template-variable"
+                value=""
+                onChange={(event) => {
+                  const selected = CRM_VARIABLES.find((variable) => variable.crmField === event.target.value);
+                  if (selected) addVariable(selected.label, selected.crmField);
+                }}
+                className="inline-flex h-7 cursor-pointer rounded-lg border border-adlive-primary/30 bg-adlive-primary-light px-2 text-xs font-medium text-adlive-primary focus:outline-none"
               >
-                <Plus className="h-3 w-3" aria-hidden />
-                Agregar variable
-              </button>
+                <option value="" disabled>
+                  + Agregar variable…
+                </option>
+                {CRM_VARIABLES.map((variable) => (
+                  <option key={variable.crmField} value={variable.crmField}>{variable.label}</option>
+                ))}
+              </select>
+              {variableMappings.length > 0 ? (
+                <span className="block text-[11px] text-adlive-text-muted" aria-live="polite">
+                  {variableMappings.map((mapping) => `${mapping.slot}: ${mapping.label}`).join(" · ")}
+                </span>
+              ) : null}
               <span aria-live="polite">
                 Variables detectadas: {variablesCount} · {body.length}/1024
               </span>

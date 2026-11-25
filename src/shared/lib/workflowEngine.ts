@@ -89,19 +89,21 @@ export function workflowStatusLabel(status: WorkflowStatus): string {
  * Filtro opcional del disparador: landing, campaña o etiqueta
  * -------------------------------------------------------------------------- */
 
-export type TriggerFilterType = "ninguno" | "campania" | "landing" | "etiqueta";
+export type TriggerFilterType = "ninguno" | "campania" | "landing" | "etiqueta" | "formulario";
 
 export const TRIGGER_FILTER_LABELS: Record<TriggerFilterType, string> = {
   ninguno: "Sin filtro (cualquier origen)",
   campania: "Campaña UTM",
   landing: "Landing o URL",
   etiqueta: "Etiqueta del contacto",
+  formulario: "Formulario específico",
 };
 
 export interface TriggerFilterContext {
   utmCampaign?: string | null;
   landingUrl?: string | null;
   tags?: string[];
+  formName?: string | null;
 }
 
 /** Evalúa el filtro configurado en el nodo disparador contra el contexto del evento. */
@@ -114,6 +116,7 @@ export function triggerFilterMatches(
   if (tipo === "ninguno" || !valor) return true;
   if (tipo === "campania") return (context.utmCampaign ?? "").toLowerCase().includes(valor);
   if (tipo === "landing") return (context.landingUrl ?? "").toLowerCase().includes(valor);
+  if (tipo === "formulario") return (context.formName ?? "").toLowerCase().includes(valor);
   return (context.tags ?? []).some((tag) => tag.trim().toLowerCase() === valor);
 }
 

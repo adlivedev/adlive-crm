@@ -59,6 +59,7 @@ export async function executeWorkflowsForEvent(input: {
   event: WorkflowContactEvent;
   utmCampaign?: string | null;
   landingUrl?: string | null;
+  formName?: string | null;
 }): Promise<{ matched: number; enrolled: number }> {
   const admin = createAdminClient();
   const { data: contactRow, error: contactError } = await admin.from("contacts").select("*")
@@ -83,6 +84,7 @@ export async function executeWorkflowsForEvent(input: {
         utmCampaign: input.utmCampaign ?? null,
         landingUrl: input.landingUrl ?? null,
         tags: contact.tags ?? [],
+        formName: input.formName ?? null,
       });
       if (!matchesFilter) continue;
       matched += 1;
@@ -158,6 +160,18 @@ async function executeWorkflowCanvas(admin: Admin, workflow: Workflow, contact: 
       break;
     } else if (label.startsWith("Enviar WhatsApp")) {
       result = await executeSendWhatsapp(admin, workflow, contact, node);
+    } else if (label.startsWith("Activar Bot")) {
+      const conversationId = await ensureConversation(admin, workflow, contact);
+      const botCheck = await admin.from("ai_bots").select("id").eq("tenant_id", workflow.tenant_id)
+        .eq("is_active", true).neq("provider", "integrated").limit(1);
+      if ((botCheck.data ?? []).length === 0) {
+        result = { outcome: "error", detail: "No hay un Bot IA activo con proveedor configurado en este workspace." };
+      } else {
+        const { error } = await admin.from("conversations").update({ handler_mode: "bot" }).eq("id", conversationId).eq("tenant_id", workflow.tenant_id);
+        result = error
+          ? { outcome: "error", detail: `No se pudo activar el Bot IA: ${error.message}` }
+          : { outcome: "success", detail: "Conversación puesta en modo Bot IA: el bot atenderá al cliente desde su próximo mensaje." };
+      }
     } else if (label.startsWith("Marcar en seguimiento")) {
       const { error } = await admin.from("contacts").update({ is_starred: true, updated_at: now })
         .eq("id", contact.id).eq("tenant_id", workflow.tenant_id);

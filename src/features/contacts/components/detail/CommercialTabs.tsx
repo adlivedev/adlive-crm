@@ -21,21 +21,23 @@ import {
   Circle,
   CircleCheck,
   FileText,
+  History,
   NotepadText,
   Paperclip,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
 import { Card } from "@/shared/components/ui/Card";
 import { formatCOP, formatDate, formatRelativeTime, formatTime } from "@/shared/lib/format";
+import { createClient } from "@/shared/lib/supabase/client";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact } from "@/shared/types/database";
 
-type TabKey = "notas" | "tareas" | "empresas" | "documentos" | "citas";
+type TabKey = "notas" | "tareas" | "empresas" | "documentos" | "citas" | "leads";
 
 const TABS: Array<{ key: TabKey; label: string; icon: typeof NotepadText }> = [
   { key: "notas", label: "Notas", icon: NotepadText },
@@ -43,6 +45,7 @@ const TABS: Array<{ key: TabKey; label: string; icon: typeof NotepadText }> = [
   { key: "empresas", label: "Empresas", icon: Building2 },
   { key: "documentos", label: "Documentos", icon: FileText },
   { key: "citas", label: "Citas", icon: CalendarDays },
+  { key: "leads", label: "Historial de Leads", icon: History },
 ];
 
 const INPUT_CLASS =
@@ -112,8 +115,90 @@ export function CommercialTabs({ contact }: { contact: Contact }) {
         {activeTab === "empresas" ? <CompaniesTab contact={contact} /> : null}
         {activeTab === "documentos" ? <DocumentsTab contact={contact} /> : null}
         {activeTab === "citas" ? <AppointmentsTab /> : null}
+        {activeTab === "leads" ? <LeadsTab contact={contact} /> : null}
       </div>
     </Card>
+  );
+}
+
+/* ============================================================================
+ * HISTORIAL DE LEADS (formularios / campañas / fusiones)
+ * ========================================================================== */
+
+interface LeadHistoryRow {
+  id: string;
+  source: string | null;
+  detail: string | null;
+  payload: Record<string, unknown> | null;
+  created_at: string;
+}
+
+const LEAD_SOURCE_LABELS: Record<string, string> = {
+  form: "Formulario web",
+  webhook: "Webhook / API",
+  whatsapp: "WhatsApp",
+  manual: "Creación manual",
+  merge: "Fusión de duplicado",
+  import: "Importación",
+};
+
+function LeadsTab({ contact }: { contact: Contact }) {
+  const [rows, setRows] = useState<LeadHistoryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    createClient().from("contact_lead_history")
+      .select("id,source,detail,payload,created_at")
+      .eq("contact_id", contact.id)
+      .order("created_at", { ascending: false })
+      .then(({ data }) => {
+        if (cancelled) return;
+        setRows((data ?? []) as LeadHistoryRow[]);
+        setLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [contact.id]);
+
+  if (loading) {
+    return <p className="py-8 text-center text-sm text-adlive-text-muted">Cargando historial de leads…</p>;
+  }
+  if (rows.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-adlive-text-muted">
+        Aún no hay registros de leads para este contacto.
+        <span className="mt-1 block text-xs">Cada formulario enviado o fusión por deduplicación aparecerá aquí con fecha, origen y UTMs.</span>
+      </p>
+    );
+  }
+
+  return (
+    <ul className="flex flex-col gap-2" aria-label="Historial de leads">
+      {rows.map((row) => {
+        const utm = (row.payload?.utm ?? row.payload) as Record<string, unknown> | null;
+        const utmParts = utm
+          ? ["utm_source", "utm_medium", "utm_campaign"].map((key) => utm[key]).filter(Boolean)
+          : [];
+        return (
+          <li key={row.id} className="rounded-xl border border-adlive-border bg-white p-3">
+            <div className="flex items-center justify-between gap-2">
+              <Badge tone="cyan">{LEAD_SOURCE_LABELS[row.source ?? ""] ?? row.source ?? "Lead"}</Badge>
+              <span className="text-[11px] text-adlive-text-muted">{formatRelativeTime(row.created_at)}</span>
+            </div>
+            {row.detail ? <p className="mt-1.5 text-sm text-adlive-text-main">{row.detail}</p> : null}
+            {utmParts.length > 0 ? (
+              <p className="mt-1 text-[11px] text-adlive-text-muted">UTM: {utmParts.join(" · ")}</p>
+            ) : null}
+            {row.payload && Object.keys(row.payload).length > 0 ? (
+              <details className="mt-1.5">
+                <summary className="cursor-pointer text-[11px] font-medium text-adlive-primary">Datos enviados</summary>
+                <pre className="mt-1 overflow-x-auto rounded-lg bg-adlive-canvas-bg p-2 text-[11px] text-adlive-text-muted">{JSON.stringify(row.payload, null, 2)}</pre>
+              </details>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { createAdminClient } from "@/shared/lib/supabase/admin";
+import { transcribeAudioMessage } from "@/shared/services/audioTranscriptionService";
 import { processTemplateStatusChanges, templateStatusValueSchema } from "@/shared/services/whatsappTemplateWebhookService";
 import type { TemplateStatusChange } from "@/shared/services/whatsappTemplateWebhookService";
 import type { MessageType } from "@/shared/types/database";
@@ -192,6 +193,16 @@ export async function ingestWhatsAppPayload(payload: WhatsAppPayload, admin = cr
     const batchInserted = z.number().int().nonnegative().parse(data);
     inserted += batchInserted;
     if (batchInserted > 0) insertedWaMessageIds.push(...waMessageIds.filter((id) => !existingIds.has(id)));
+  }
+
+  /* Transcripción automática de audios entrantes (segundo plano, nunca bloquea
+     la respuesta 200 del webhook). Si falla, el agente puede usar «Describir audio». */
+  if (insertedWaMessageIds.length > 0) {
+    const { data: audioRows } = await admin.from("messages")
+      .select("id,tenant_id").in("wa_message_id", insertedWaMessageIds).eq("msg_type", "audio");
+    for (const row of audioRows ?? []) {
+      transcribeAudioMessage(row.tenant_id, row.id).catch(() => { /* silencioso: hay botón manual */ });
+    }
   }
   const statusesUpdated = await updateDeliveryStatuses(messageValues, admin, scope.tenantId);
   const templateResult = await processTemplateStatusChanges(templateChanges, admin, scope.tenantId);

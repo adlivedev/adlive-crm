@@ -62,6 +62,7 @@ export const tenantLeadWebPayloadSchema = z.object({
   last_name: z.string().trim().min(1).max(100),
   phone: phoneSchema,
   email: emailSchema,
+  form_name: z.string().trim().min(1).max(150).optional(),
   custom_fields: z.record(z.string().regex(/^[a-z0-9_]{1,100}$/), z.string().trim().max(2000))
     .refine((value) => Object.keys(value).length <= 30, "Máximo 30 campos personalizados.").default({}),
   lead_source: z.string().trim().min(1).max(100).optional(),
@@ -168,6 +169,7 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
       event: "contact_created",
       utmCampaign: payload.utm_campaign,
       landingUrl: payload.landing_url,
+      formName: payload.form_name ?? null,
     });
   } catch (workflowError) {
     console.error("Workflow execution after lead ingestion failed", workflowError instanceof Error ? workflowError.message : "unknown error");

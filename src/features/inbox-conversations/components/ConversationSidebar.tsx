@@ -5,7 +5,8 @@
  * selector de asignación y lista de hilos del Call Center.
  */
 
-import { Search } from "lucide-react";
+import { Search, SlidersHorizontal } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { Contact, ConversationWithDetails, TenantMember } from "@/shared/types/database";
 
@@ -13,11 +14,22 @@ import { ConversationThreadList } from "./ConversationThreadList";
 import {
   MODE_FILTER_LABELS,
   TYPIFICATION_PILLS,
+  normalizeText,
   type InboxFilter,
   type InboxModeFilter,
 } from "./inboxUtils";
 
-const MODE_ORDER: InboxModeFilter[] = ["all", "bot", "human", "unread", "starred", "untyped"];
+/** Píldoras de modo visibles por defecto (máx. 4 prioritarias). El resto va en «Ver más». */
+const VISIBLE_MODES: InboxModeFilter[] = ["unread", "starred", "bot", "human"];
+const MORE_MODES: InboxModeFilter[] = ["all", "untyped"];
+const MORE_MODE_LABELS: Record<InboxModeFilter, string> = {
+  all: "Todas",
+  untyped: "Sin tipificar",
+  unread: MODE_FILTER_LABELS.unread,
+  starred: MODE_FILTER_LABELS.starred,
+  bot: MODE_FILTER_LABELS.bot,
+  human: MODE_FILTER_LABELS.human,
+};
 
 interface ConversationSidebarProps {
   threads: ConversationWithDetails[];
@@ -41,6 +53,15 @@ export function ConversationSidebar({
   contacts,
 }: ConversationSidebarProps) {
   const activeAgents = members.filter((member) => member.is_active);
+  const [showMore, setShowMore] = useState(false);
+  const [moreSearch, setMoreSearch] = useState("");
+
+  const hiddenActive = MORE_MODES.includes(filter.mode) || filter.typification !== null;
+  const moreQuery = normalizeText(moreSearch.trim());
+  const visibleTypificationPills = useMemo(
+    () => TYPIFICATION_PILLS.filter((pill) => !moreQuery || normalizeText(pill).includes(moreQuery)),
+    [moreQuery],
+  );
 
   return (
     <section
@@ -64,9 +85,9 @@ export function ConversationSidebar({
           />
         </div>
 
-        {/* Primera fila de filtros */}
-        <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Filtros de conversaciones">
-          {MODE_ORDER.map((mode) => {
+        {/* Primera fila de filtros: máx. 4 píldoras prioritarias + «Ver más» */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5" role="group" aria-label="Filtros de conversaciones">
+          {VISIBLE_MODES.map((mode) => {
             const isActive = filter.mode === mode;
             return (
               <button
@@ -84,31 +105,88 @@ export function ConversationSidebar({
               </button>
             );
           })}
+          <button
+            type="button"
+            aria-expanded={showMore}
+            onClick={() => setShowMore((open) => !open)}
+            className={`flex cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+              showMore || hiddenActive
+                ? "border-adlive-primary bg-adlive-primary-light text-adlive-primary"
+                : "border-adlive-border bg-white text-adlive-text-muted hover:border-adlive-primary/40 hover:text-adlive-primary"
+            }`}
+          >
+            <SlidersHorizontal className="h-3 w-3" aria-hidden />
+            Ver más
+          </button>
         </div>
 
-        {/* Píldoras de tipificación Call Center */}
-        <div className="mt-2.5 flex flex-wrap gap-1.5" role="group" aria-label="Tipificación Call Center">
-          {TYPIFICATION_PILLS.map((pill) => {
-            const isActive = filter.typification === pill;
-            return (
-              <button
-                key={pill}
-                type="button"
-                aria-pressed={isActive}
-                onClick={() =>
-                  onFilterChange({ ...filter, typification: isActive ? null : pill })
-                }
-                className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
-                  isActive
-                    ? "border-adlive-cyan bg-adlive-cyan-light text-cyan-800"
-                    : "border-adlive-border bg-adlive-canvas-bg/60 text-adlive-text-muted hover:border-adlive-cyan/50 hover:text-cyan-700"
-                }`}
-              >
-                {pill}
-              </button>
-            );
-          })}
-        </div>
+        {/* Panel «Ver más»: resto de filtros con buscador */}
+        {showMore ? (
+          <div className="mt-2 rounded-xl border border-adlive-border bg-adlive-canvas-bg/50 p-2">
+            <label htmlFor="inbox-more-search" className="sr-only">
+              Buscar filtro
+            </label>
+            <input
+              id="inbox-more-search"
+              type="search"
+              value={moreSearch}
+              onChange={(event) => setMoreSearch(event.target.value)}
+              placeholder="Buscar filtro..."
+              className="h-8 w-full rounded-lg border border-adlive-border bg-white px-2.5 text-xs text-adlive-text-main placeholder:text-adlive-text-muted/60 focus:border-adlive-primary focus:outline-none"
+            />
+            <div className="mt-1.5 flex flex-wrap gap-1.5" role="group" aria-label="Más filtros de conversaciones">
+              {MORE_MODES.filter((mode) => !moreQuery || normalizeText(MORE_MODE_LABELS[mode]).includes(moreQuery)).map((mode) => {
+                const isActive = filter.mode === mode;
+                return (
+                  <button
+                    key={mode}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => onFilterChange({ ...filter, mode })}
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors ${
+                      isActive
+                        ? "border-adlive-primary bg-adlive-primary text-adlive-text-inverse"
+                        : "border-adlive-border bg-white text-adlive-text-muted hover:border-adlive-primary/40 hover:text-adlive-primary"
+                    }`}
+                  >
+                    {MORE_MODE_LABELS[mode]}
+                  </button>
+                );
+              })}
+              {/* Píldoras de tipificación Call Center */}
+              {visibleTypificationPills.map((pill) => {
+                const isActive = filter.typification === pill;
+                return (
+                  <button
+                    key={pill}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() =>
+                      onFilterChange({ ...filter, typification: isActive ? null : pill })
+                    }
+                    className={`cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-semibold transition-colors ${
+                      isActive
+                        ? "border-adlive-cyan bg-adlive-cyan-light text-cyan-800"
+                        : "border-adlive-border bg-white text-adlive-text-muted hover:border-adlive-cyan/50 hover:text-cyan-700"
+                    }`}
+                  >
+                    {pill}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+        {filter.typification && !showMore ? (
+          <button
+            type="button"
+            onClick={() => onFilterChange({ ...filter, typification: null })}
+            className="mt-2 cursor-pointer rounded-full border border-adlive-cyan bg-adlive-cyan-light px-2.5 py-1 text-[11px] font-semibold text-cyan-800"
+            aria-pressed="true"
+          >
+            {filter.typification} ✕
+          </button>
+        ) : null}
 
         {/* Selector de asignación */}
         <label htmlFor="inbox-assignee" className="sr-only">

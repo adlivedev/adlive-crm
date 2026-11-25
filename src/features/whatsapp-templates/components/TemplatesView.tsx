@@ -43,6 +43,16 @@ export function TemplatesView() {
         {!readOnly ? <div className="flex flex-wrap gap-3"><Button variant="secondary" onClick={() => void handleSync()} disabled={isSyncing || !whatsappConnected} isLoading={isSyncing}><RefreshCw className={`h-4 w-4 ${isSyncing ? "animate-spin" : ""}`} aria-hidden />{isSyncing ? "Sincronizando…" : "Sincronizar"}</Button><Button onClick={() => setShowCreate(true)} disabled={!whatsappConnected}><Plus className="h-4 w-4" aria-hidden />Crear plantilla</Button></div> : null}
       </header>
       {!whatsappConnected && !readOnly ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-adlive-warning">Conecta WhatsApp Cloud API en Integraciones para crear o sincronizar plantillas.</p> : null}
+      {/* Guía rápida de Plantillas (colapsable) */}
+      <details className="rounded-xl border border-adlive-border bg-adlive-canvas-bg/40 px-4 py-3">
+        <summary className="cursor-pointer text-sm font-semibold text-adlive-text-main">Guía rápida de Plantillas</summary>
+        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-adlive-text-muted">
+          <li><strong className="text-adlive-text-main">¿Cuándo usarlas?</strong> Fuera de la ventana de 24 h Meta solo entrega plantillas aprobadas; dentro de la ventana puedes escribir libre.</li>
+          <li><strong className="text-adlive-text-main">Categorías Meta:</strong> utilidad, autenticación y marketing. Elige la que describa el propósito real: Meta rechaza plantillas engañosas.</li>
+          <li><strong className="text-adlive-text-main">Aprobación:</strong> la mayoría se aprueba en minutos; las de marketing pueden tardar hasta 48 h. Usa «Sincronizar» para traer el estado final.</li>
+          <li><strong className="text-adlive-text-main">Variables:</strong> usa <code className="rounded bg-white px-1">{"{{1}}"}</code>, <code className="rounded bg-white px-1">{"{{2}}"}</code>… El CRM las rellena automáticamente con los datos del contacto al enviar.</li>
+        </ul>
+      </details>
       {syncError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-adlive-danger">{syncError}</p> : null}
       <TemplatesTable templates={templates} onDelete={deleteWhatsappTemplate} readOnly={readOnly} />
       {!readOnly ? <CreateTemplateModal open={showCreate} onClose={() => setShowCreate(false)} /> : null}

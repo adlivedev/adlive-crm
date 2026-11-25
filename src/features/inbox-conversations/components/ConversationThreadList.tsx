@@ -64,9 +64,9 @@ export function ConversationThreadList({ threads, selectedId, onSelect, contacts
                     <span className="shrink-0 text-[11px] text-adlive-text-muted">{formatRelativeTime(thread.last_message_at)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5">
-                    <Badge tone="success" className="px-1.5 py-0 text-[10px]">
+                    <Badge tone="success" className="px-1.5 py-0 text-[10px]" title="WhatsApp Conectado">
                       <span className="inline-block h-1.5 w-1.5 rounded-full bg-adlive-success" aria-hidden />
-                      WhatsApp · conectado
+                      • WA Act
                     </Badge>
                     <Badge tone={thread.handler_mode === "bot" ? "cyan" : "neutral"} className="px-1.5 py-0 text-[10px]">
                       {thread.handler_mode === "bot" ? "Bot" : "Humano"}

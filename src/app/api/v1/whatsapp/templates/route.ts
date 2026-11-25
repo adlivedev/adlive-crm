@@ -7,12 +7,19 @@ import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
 const buttonSchema = z.object({ type: z.enum(["QUICK_REPLY", "URL", "PHONE_NUMBER"]), text: z.string().trim().min(1).max(25), url: z.string().url().max(2048).optional(), phone_number: z.string().max(30).optional() });
+const variableMappingSchema = z.object({
+  slot: z.string().regex(/^\{\{\d+\}\}$/),
+  label: z.string().trim().min(1).max(80),
+  crmField: z.string().trim().min(1).max(60),
+});
 const templateSchema = z.object({
   tenantId: z.string().uuid(), name: z.string().regex(/^[a-z0-9_]{3,150}$/),
   category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]), language: z.string().trim().min(2).max(20),
   body_text: z.string().trim().min(1).max(1024), footer_text: z.string().trim().max(60).nullable().optional(),
   variables_count: z.number().int().min(0).max(20), header_type: z.enum(["NONE", "TEXT"]).default("NONE"),
   header_content: z.string().trim().max(60).nullable().optional(), buttons: z.array(buttonSchema).max(10).default([]),
+  variable_mappings: z.array(variableMappingSchema).max(20).default([]),
+  default_header_media_url: z.string().url().max(2048).nullable().optional(),
 });
 
 export async function POST(request: Request) {

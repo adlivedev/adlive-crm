@@ -7,10 +7,11 @@
  */
 
 import { Star, Trash2, Undo2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/shared/components/ui/Badge";
 import { initials } from "@/shared/lib/format";
+import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact, ConversationWithDetails, TenantMember } from "@/shared/types/database";
 
@@ -25,6 +26,26 @@ interface ChatHeaderProps {
 export function ChatHeader({ thread, contact, members }: ChatHeaderProps) {
   const { toggleContactStar, setContactTypification, setConversationHandler, assignConversation, deleteConversation, aiBots } = useCrm();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [phones, setPhones] = useState<string[]>([]);
+
+  /* Teléfonos adicionales del contacto: el selector solo aparece si hay más de 1. */
+  useEffect(() => {
+    if (!isSupabaseBrowserConfigured()) return;
+    let cancelled = false;
+    createClient().from("contact_phones").select("phone_e164").eq("contact_id", contact.id)
+      .then(({ data }) => {
+        if (cancelled) return;
+        const list = (data ?? []).map((row: { phone_e164: string }) => row.phone_e164);
+        setPhones(list.length > 1 ? list : []);
+      });
+    return () => { cancelled = true; };
+  }, [contact.id]);
+
+  const targetPhone = thread.target_phone_e164 ?? contact.phone_e164;
+
+  const handlePhoneChange = async (phone: string) => {
+    await createClient().from("conversations").update({ target_phone_e164: phone }).eq("id", thread.id);
+  };
 
   const isStarred = contact.is_starred;
   const activeAgents = members.filter((member) => member.is_active);
@@ -58,7 +79,22 @@ export function ChatHeader({ thread, contact, members }: ChatHeaderProps) {
             {thread.channel === "whatsapp" ? "WhatsApp" : thread.channel}
           </Badge>
         </div>
-        <p className="truncate text-[11px] text-adlive-text-muted">{contact.phone_e164}</p>
+        <p className="truncate text-[11px] text-adlive-text-muted">{targetPhone}</p>
+        {phones.length > 1 ? (
+          <label className="mt-0.5 flex items-center gap-1.5 text-[11px] text-adlive-text-muted">
+            <span className="sr-only">Enviar mensajes a</span>
+            <select
+              value={targetPhone}
+              onChange={(event) => handlePhoneChange(event.target.value)}
+              className="h-6 cursor-pointer rounded border border-adlive-border bg-white px-1.5 text-[11px] text-adlive-text-main focus:border-adlive-primary focus:outline-none"
+              title="Número de destino de los mensajes"
+            >
+              {phones.map((phone) => (
+                <option key={phone} value={phone}>{phone}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </div>
 
       {/* Acciones en caliente */}

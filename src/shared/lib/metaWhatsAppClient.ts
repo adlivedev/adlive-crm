@@ -60,6 +60,19 @@ export async function sendMetaTemplate(tenantId: string, to: string, template: {
   return result.messages[0]!.id;
 }
 
+/** Envía una imagen por URL pública (Supabase Storage) con pie de foto opcional. */
+export async function sendMetaImage(tenantId: string, to: string, imageUrl: string, caption: string | null): Promise<string> {
+  const settings = await config(tenantId);
+  const result = await graph(`/${settings.phoneNumberId}/messages`, settings.accessToken, {
+    method: "POST",
+    body: JSON.stringify({
+      messaging_product: "whatsapp", recipient_type: "individual", to: to.replace(/\D/g, ""),
+      type: "image", image: { link: imageUrl, ...(caption ? { caption } : {}) },
+    }),
+  }, z.object({ messages: z.array(z.object({ id: z.string() })).min(1) }));
+  return result.messages[0]!.id;
+}
+
 export async function createMetaTemplate(tenantId: string, input: MetaTemplateInput): Promise<string> {
   const settings = await config(tenantId);
   const components: Array<Record<string, unknown>> = [{ type: "BODY", text: input.body_text }];

@@ -117,6 +117,7 @@ export interface SendMessageInput {
   body: string;
   msg_type?: MessageType;
   template_name?: string | null;
+  media_url?: string | null;
 }
 
 export interface ContactQuery {
@@ -147,6 +148,8 @@ export type CreateTemplateInput = Pick<WhatsAppTemplate, "name" | "category" | "
   header_type?: "NONE" | "TEXT" | "IMAGE" | "DOCUMENT";
   header_content?: string | null;
   buttons?: WhatsAppTemplateButton[];
+  variable_mappings?: Array<{ slot: string; label: string; crmField: string }>;
+  default_header_media_url?: string | null;
 };
 export type CreateWorkflowInput = Pick<Workflow, "name" | "trigger_type"> & { description?: string | null };
 export type UpdateWorkflowInput = Partial<Pick<Workflow, "name" | "description" | "allow_reenrollment">>;

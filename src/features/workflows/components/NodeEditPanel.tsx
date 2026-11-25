@@ -21,6 +21,7 @@ export type PanelState =
 
 const ACTION_TYPES = [
   { value: "Enviar WhatsApp", needs: "template" },
+  { value: "Activar Bot IA", needs: "none" },
   { value: "Marcar en seguimiento", needs: "none" },
   { value: "Mover a etapa", needs: "stage" },
   { value: "Crear oportunidad", needs: "stage" },

@@ -5,7 +5,7 @@
  * principal y configuración resumida (plantilla, etapa u origen del trigger).
  */
 
-import { GitBranch, MessageSquare, Star, Target, Users, Zap, type LucideIcon } from "lucide-react";
+import { Bot, GitBranch, MessageSquare, Star, Target, Users, Zap, type LucideIcon } from "lucide-react";
 
 import type { WorkflowNode } from "@/shared/types/database";
 
@@ -17,6 +17,7 @@ const NODE_ICONS: Record<WorkflowNode["type"], LucideIcon> = {
 
 function actionIcon(label: string): LucideIcon {
   if (label.startsWith("Enviar WhatsApp")) return MessageSquare;
+  if (label.startsWith("Activar Bot")) return Bot;
   if (label.startsWith("Marcar en seguimiento")) return Star;
   if (label.startsWith("Mover a") || label.startsWith("Crear oportunidad")) return Target;
   if (label.startsWith("Asignar a un miembro")) return Users;

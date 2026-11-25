@@ -25,6 +25,20 @@
 
 ---
 
+### [Iteración 21b - Completado FASE 1 PRO: UI de conversaciones, multimedia, transcripción, variables de plantillas y workflows]
+- **Bandeja compacta:** `ConversationSidebar` ahora muestra máx. 4 píldoras (Sin leer, Seguimiento, Bot, Humano) + botón «Ver más» con buscador que contiene el resto (Todas, Sin tipificar y todas las tipificaciones); badge de canal `• WA Act` con `title="WhatsApp Conectado"` en una sola línea.
+- **Selector de teléfono (`ChatHeader`):** carga `contact_phones` y solo si hay >1 muestra un selector que guarda `conversations.target_phone_e164`; `/api/v1/whatsapp/send` envía al teléfono objetivo (fallback al principal).
+- **Pestaña «Historial de Leads» (Ficha 360°):** lista `contact_lead_history` con fecha, origen legible, UTMs y payload expandible. Migración `20261125000200` añade columnas `form_name`, `submitted_phone`, `submitted_email` y UTM propios.
+- **Adjuntar imagen (≤2 MB):** bucket público `chat-media` con policies RLS por carpeta de tenant (migración `20261125000300`); `sendMetaImage` en el cliente Meta; send route acepta `msg_type=image` + `media_url`; compositor con botón de adjuntar, validación de tamaño/tipo y vista previa del adjunto.
+- **Imágenes entrantes:** `MessageList` renderiza la imagen en burbuja con lightbox (ampliar, descargar, cerrar). Eliminación por moderación: `DELETE /api/v1/messages/[messageId]/media` borra del Storage y marca `media_deleted_at` (GET devuelve 410; la UI muestra «Archivo eliminado por moderación»); botón en `ContextAttachmentsPanel` para owner/admin.
+- **Transcripción de audios:** `audioTranscriptionService` (Gemini multimodal con la API key cifrada del vault; JSON con transcript, resumen neutral y flag de lenguaje ofensivo) persistido en `audio_transcript`/`audio_summary`/`audio_moderation_flag`. Disparo automático fire-and-forget al insertar audios entrantes en el webhook + endpoint `POST /api/v1/messages/[messageId]/transcribe` y botón «Describir audio» con aviso de moderación debajo del reproductor.
+- **Plantillas:** guía rápida colapsable en `TemplatesView`; selector de Variables del CRM (Nombre, Nombre completo, Teléfono, Correo, Campaña/Origen, Empresa) que inserta `{{N}}`, muestra el mapeo legible (`{{1: Nombre del contacto}}`) y lo guarda en `variable_mappings`; al enviar, el CRM rellena los valores reales del contacto según el mapeo (fallback al comportamiento anterior).
+- **Workflows:** nueva acción «Activar Bot IA» (UI + motor: pone la conversación en `handler_mode='bot'` si hay bot activo con proveedor propio; valida y registra en el log de ejecución); filtro de disparador «Formulario específico» (`form_name` opcional en el payload del form embebido, propagado al contexto del trigger).
+- **Verificación:** 187/187 pruebas en 26 archivos, `tsc --noEmit` limpio, ESLint sin advertencias y build exitoso.
+- **Aplazado (requiere más alcance):** disparador SLA por tiempo real (necesita programador de tareas en servidor), constructor de mensaje interactivo tipo WOM con botones y vista previa en vivo en el compositor, y subida de imagen de cabecera al hosting de Meta (la columna `default_header_media_url` ya está en el API y la BD).
+
+---
+
 ## Historial de Iteraciones
 
 ### [Iteración 20 - El bot ahora atiende automáticamente: conversaciones nuevas en modo Bot por defecto]

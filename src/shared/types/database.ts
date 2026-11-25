@@ -179,6 +179,8 @@ export interface Conversation {
   last_message_at: string;
   last_message_preview: string | null;
   last_message_media_type: MessageType;
+  /** Teléfono de destino alternativo elegido en el chat (contact_phones). */
+  target_phone_e164?: string | null;
   created_at: string;
 }
 
@@ -197,6 +199,12 @@ export interface Message {
   /** Identificador de multimedia de Meta; se descarga bajo demanda vía /api/v1/messages/[id]/media. */
   media_id?: string | null;
   media_mime_type: string | null;
+  /** Moderación: fecha en que se eliminó el archivo del Storage. */
+  media_deleted_at?: string | null;
+  /** Transcripción y resumen automático de audios (Gemini/Whisper). */
+  audio_transcript?: string | null;
+  audio_summary?: string | null;
+  audio_moderation_flag?: boolean;
   template_name: string | null;
   status: MessageStatus;
   error_reason: string | null;

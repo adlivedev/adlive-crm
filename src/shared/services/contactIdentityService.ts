@@ -7,9 +7,21 @@ interface LeadIdentity {
   contactId: string;          // contacto devuelto por el RPC de ingesta
   phoneE164: string;
   email: string | null;
-  source: string;             // 'form' | 'webhook' | 'whatsapp' | 'manual'
+  source: string;             // 'form' | 'webhook' | 'whatsapp' | 'manual' | 'merge' | 'import'
   detail?: string;
   payload?: Record<string, unknown>;
+}
+
+/** Extrae la atribución UTM plana que guardamos en columnas propias. */
+function utmFrom(payload: Record<string, unknown> | undefined): Record<string, string | null> {
+  const utm = (payload?.utm ?? payload) as Record<string, unknown> | undefined;
+  const pick = (key: string) => (typeof utm?.[key] === "string" ? (utm[key] as string) : null);
+  return {
+    utm_source: pick("utm_source"),
+    utm_medium: pick("utm_medium"),
+    utm_campaign: pick("utm_campaign"),
+    utm_term: pick("utm_term"),
+  };
 }
 
 /**
@@ -25,12 +37,17 @@ export async function consolidateLeadIdentity(lead: LeadIdentity): Promise<strin
   const admin = createAdminClient();
 
   /* Registro de historial siempre (origen de los datos del lead). */
+  const utm = utmFrom(lead.payload);
   await admin.from("contact_lead_history").insert({
     tenant_id: lead.tenantId,
     contact_id: lead.contactId,
     source: lead.source,
     detail: lead.detail ?? `Lead recibido por ${lead.source}.`,
     payload: lead.payload ?? {},
+    form_name: typeof lead.payload?.form_name === "string" ? lead.payload.form_name : null,
+    submitted_phone: lead.phoneE164,
+    submitted_email: lead.email,
+    ...utm,
   });
 
   await admin.from("contact_phones").upsert(
