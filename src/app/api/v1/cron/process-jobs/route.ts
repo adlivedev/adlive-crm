@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { nextRetryRunAfter } from "@/shared/lib/backgroundJobs";
+import { isCronAuthorized, partitionJobsByActiveTenants } from "@/shared/lib/cronSecurity";
 import { emailSlaAlert, sendDailySummary } from "@/shared/services/conversationAlertService";
 import { runSlaWorkflowsSweep } from "@/shared/services/workflowExecutionService";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
@@ -10,26 +11,37 @@ export const maxDuration = 60;
 
 /**
  * Procesador de la cola anti-timeout (background_jobs).
- * Protegido por CRON_SECRET en la cabecera Authorization: Bearer …
- * Reintenta trabajos pendientes con retraso, en lotes pequeños para no
- * superar el límite de duración de la función.
+ * Scheduler oficial: Supabase `pg_cron` (`adlive-crm-process-jobs` cada 5 min),
+ * que llama este endpoint con `Authorization: Bearer ${CRON_SECRET}`.
+ * Acepta GET y POST (pg_net puede usar cualquiera de los dos).
+ *
+ * Blindaje multi-tenant: se iteran SOLO los tenants `active` (los `suspended`
+ * nunca se procesan) y cada tenant se ejecuta dentro de su propio try/catch,
+ * de modo que un fallo en una empresa no detiene a las demás. Toda consulta de
+ * los jobs ya filtra por `tenant_id` (los jobs nacen con tenant del workspace).
  */
-export async function GET(request: Request) {
-  const expected = process.env.CRON_SECRET;
-  const auth = request.headers.get("authorization");
-  if (!expected || auth !== `Bearer ${expected}`) {
+async function handle(request: Request): Promise<Response> {
+  if (!isCronAuthorized(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return NextResponse.json({ error: "No autorizado." }, { status: 401 });
   }
 
-  /* Barrido de workflows con disparador SLA (antes de la cola; nunca bloquea los trabajos). */
+  const admin = createAdminClient();
+
+  const { data: tenants, error: tenantsError } = await admin.from("tenants").select("id").eq("status", "active");
+  if (tenantsError) return NextResponse.json({ error: tenantsError.message }, { status: 502 });
+  const activeTenantIds = new Set<string>((tenants ?? []).map((tenant) => tenant.id as string));
+
+  /* Barrido de workflows con disparador SLA: solo sobre tenants activos y nunca
+     bloquea la cola de trabajos. */
+  let sweepEnrolled = 0;
   try {
-    const sweep = await runSlaWorkflowsSweep();
+    const sweep = await runSlaWorkflowsSweep(activeTenantIds);
+    sweepEnrolled = sweep.enrolled;
     if (sweep.enrolled > 0) console.info("workflow.sla.sweep", JSON.stringify(sweep));
   } catch (cause) {
     console.error("workflow.sla.sweep.failed", cause instanceof Error ? cause.message : "unknown error");
   }
 
-  const admin = createAdminClient();
   const now = new Date().toISOString();
   const { data: jobs, error } = await admin.from("background_jobs")
     .select("*")
@@ -39,9 +51,14 @@ export async function GET(request: Request) {
     .limit(10);
   if (error) return NextResponse.json({ error: error.message }, { status: 502 });
 
+  const { runnable, skipped } = partitionJobsByActiveTenants(
+    activeTenantIds,
+    (jobs ?? []) as Array<JobRow & { attempts?: number; max_attempts?: number }>,
+  );
+
   let processed = 0;
   let failed = 0;
-  for (const job of jobs ?? []) {
+  for (const job of runnable) {
     try {
       await processJob(admin, job);
       await admin.from("background_jobs").update({
@@ -50,8 +67,8 @@ export async function GET(request: Request) {
       processed += 1;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "Error desconocido";
-      const attempts = (job.attempts ?? 0) + 1;
-      const exhausted = attempts >= (job.max_attempts ?? 3);
+      const attempts = ((job.attempts as number | undefined) ?? 0) + 1;
+      const exhausted = attempts >= ((job.max_attempts as number | undefined) ?? 3);
       await admin.from("background_jobs").update({
         status: exhausted ? "failed" : "pending",
         attempts,
@@ -62,7 +79,17 @@ export async function GET(request: Request) {
       failed += 1;
     }
   }
-  return NextResponse.json({ ok: true, pending: jobs?.length ?? 0, processed, failed });
+  return NextResponse.json({
+    ok: true, pending: jobs?.length ?? 0, processed, failed, skipped: skipped.length, sla_enrolled: sweepEnrolled,
+  });
+}
+
+export async function GET(request: Request): Promise<Response> {
+  return handle(request);
+}
+
+export async function POST(request: Request): Promise<Response> {
+  return handle(request);
 }
 
 type JobRow = { id: string; tenant_id: string; job_type: string; payload: Record<string, unknown> };

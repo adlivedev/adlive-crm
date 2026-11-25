@@ -134,12 +134,17 @@ export async function executeWorkflowsForFirstInboundMessage(tenantId: string, w
  * configurado sin respuesta. No repite la inscripción dentro de la misma
  * ventana de espera (created_at >= last_inbound_at de la conversación).
  */
-export async function runSlaWorkflowsSweep(): Promise<{ workflows: number; enrolled: number }> {
+export async function runSlaWorkflowsSweep(
+  activeTenantIds?: ReadonlySet<string>,
+): Promise<{ workflows: number; enrolled: number }> {
   const admin = createAdminClient();
   const { data: workflows } = await admin.from("workflows").select("*")
     .eq("status", "Published").eq("trigger_type", "sla_no_response");
+  const candidates = ((workflows ?? []) as Workflow[]).filter(
+    (workflow) => !activeTenantIds || activeTenantIds.has(workflow.tenant_id),
+  );
   let enrolled = 0;
-  for (const workflow of (workflows ?? []) as Workflow[]) {
+  for (const workflow of candidates) {
     const triggerNode = workflow.canvas_definition.nodes.find((node) => node.type === "trigger");
     const minutes = Math.min(Math.max(Math.round(Number(triggerNode?.config.sla_minutes ?? "60")) || 60, 5), 1440);
     const cutoff = new Date(Date.now() - minutes * 60_000).toISOString();
@@ -165,7 +170,7 @@ export async function runSlaWorkflowsSweep(): Promise<{ workflows: number; enrol
       }
     }
   }
-  return { workflows: (workflows ?? []).length, enrolled };
+  return { workflows: candidates.length, enrolled };
 }
 
 /* ----------------------------------------------------------------------------

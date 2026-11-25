@@ -66,6 +66,16 @@
 
 ---
 
+### [Iteración 24 - Cron nativo en Supabase (pg_cron + pg_net + Vault) reemplaza a Vercel Hobby]
+- **Blindaje multi-tenant de `/api/v1/cron/process-jobs`:** el endpoint ahora carga solo los tenants `status='active'`, ejecuta el barrido SLA solo sobre ellos (`runSlaWorkflowsSweep(activeTenantIds)`) y particiona los jobs de `background_jobs` con `partitionJobsByActiveTenants` (los de workspaces `suspended` quedan pendientes y jamás se procesan); cada job sigue corriendo en su propio `try/catch` (un fallo de una empresa no detiene a las demás). El barrido SLA nunca bloquea la cola. Autorización con comparación en tiempo constante (`crypto.timingSafeEqual` vía `src/shared/lib/cronSecurity.ts`) y soporte GET y POST (el método que use pg_net).
+- **Migración `20261126000100_supabase_pg_cron_jobs` (aplicada a producción vía MCP):** extensiones `pg_cron` y `pg_net`; función `private.trigger_crm_process_jobs()` (`security definer`, `search_path=''`) que lee `crm_cron_secret` y `crm_cron_url` (fallback `https://adlive-crm.vercel.app/api/v1/cron/process-jobs`) de `vault.decrypted_secrets`, sale sin error si el secreto no existe y dispara `net.http_get` con `Authorization: Bearer` y timeout de 10 s; job `adlive-crm-process-jobs` programado cada 5 min de forma idempotente (desprograma previo). El secreto NO está en el repo: debe cargarse en Vault por el cliente (comando SQL de 1 línea entregado en chat).
+- **`vercel.json`:** entrada `crons` eliminada (el plan Hobby no la ejecutaba y generaba warnings); el scheduler oficial es Supabase pg_cron.
+- **Test de aislamiento (`tests/cronTenantIsolation.test.ts`, 8 pruebas):** 401 sin token / con token inválido (GET y POST); solo jobs de tenants activos se procesan (suspendido intacto); fallo de EmpresaB no detiene a CIERTO; el barrido SLA recibe exactamente el set de tenants activos; partición pura de jobs.
+- **Verificación:** 224/224 pruebas en 31 archivos, `tsc --noEmit` limpio, ESLint sin advertencias y build exitoso.
+- **Pendiente de configuración (1 paso manual):** cargar `crm_cron_secret` en Supabase Vault con el MISMO valor de la variable `CRON_SECRET` de Vercel; sin eso el job corre cada 5 min pero sale sin llamar al endpoint (comportamiento seguro, sin errores).
+
+---
+
 ## Historial de Iteraciones
 
 ### [Iteración 20 - El bot ahora atiende automáticamente: conversaciones nuevas en modo Bot por defecto]
