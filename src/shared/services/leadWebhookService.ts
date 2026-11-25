@@ -161,7 +161,16 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
     email: payload.email,
     source: "form",
     detail: `Lead captado por formulario (${payload.utm_source ?? payload.lead_source ?? "Formulario Web"}).`,
-    payload: { utm: { source: payload.utm_source, medium: payload.utm_medium, campaign: payload.utm_campaign }, custom_fields: payload.custom_fields },
+    payload: {
+      form_name: payload.form_name ?? null,
+      utm: {
+        utm_source: payload.utm_source ?? null,
+        utm_medium: payload.utm_medium ?? null,
+        utm_campaign: payload.utm_campaign ?? null,
+        utm_term: payload.utm_term ?? null,
+      },
+      custom_fields: payload.custom_fields,
+    },
   }).catch(() => result.out_contact_id);
 
   try {

@@ -176,8 +176,10 @@ function LeadsTab({ contact }: { contact: Contact }) {
     <ul className="flex flex-col gap-2" aria-label="Historial de leads">
       {rows.map((row) => {
         const utm = (row.payload?.utm ?? row.payload) as Record<string, unknown> | null;
+        /* Soporta claves oficiales utm_* y la convención corta (source/medium). */
+        const pickUtm = (key: string) => utm?.[key] ?? utm?.[key.replace(/^utm_/, "")];
         const utmParts = utm
-          ? ["utm_source", "utm_medium", "utm_campaign"].map((key) => utm[key]).filter(Boolean)
+          ? ["utm_source", "utm_medium", "utm_campaign"].map((key) => pickUtm(key)).filter(Boolean)
           : [];
         return (
           <li key={row.id} className="rounded-xl border border-adlive-border bg-white p-3">

@@ -15,7 +15,12 @@ interface LeadIdentity {
 /** Extrae la atribución UTM plana que guardamos en columnas propias. */
 function utmFrom(payload: Record<string, unknown> | undefined): Record<string, string | null> {
   const utm = (payload?.utm ?? payload) as Record<string, unknown> | undefined;
-  const pick = (key: string) => (typeof utm?.[key] === "string" ? (utm[key] as string) : null);
+  /* Acepta ambas convenciones: claves oficiales utm_* o cortas (source/medium). */
+  const pick = (key: string) => {
+    const short = key.replace(/^utm_/, "");
+    const value = utm?.[key] ?? utm?.[short];
+    return typeof value === "string" ? value : null;
+  };
   return {
     utm_source: pick("utm_source"),
     utm_medium: pick("utm_medium"),
