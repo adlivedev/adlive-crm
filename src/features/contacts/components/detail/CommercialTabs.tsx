@@ -467,7 +467,7 @@ function DocumentsTab({ contact }: { contact: Contact }) {
       </label>
       <input ref={fileInputRef} id="adjuntar-documento" type="file" className="sr-only" onChange={handleFileChange} />
       <p className="-mt-2 text-xs text-adlive-text-muted">
-        Los adjuntos quedan registrados en el historial de actividad. En Etapa B se almacenan en Supabase Storage.
+        Los adjuntos quedan registrados en el historial de actividad. Se almacenan de forma segura en el almacenamiento del workspace.
       </p>
 
       {uploadedDocuments.length > 0 ? (

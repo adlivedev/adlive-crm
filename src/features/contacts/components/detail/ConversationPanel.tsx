@@ -16,7 +16,7 @@ import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
 import { Card } from "@/shared/components/ui/Card";
 import { formatRelativeTime, formatTime } from "@/shared/lib/format";
-import { fillTemplateBody, isMetaWindowOpen, META_WINDOW_MS } from "@/shared/lib/whatsapp";
+import { fillTemplateBody, isMetaWindowOpen } from "@/shared/lib/whatsapp";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact, Conversation, WhatsAppTemplate } from "@/shared/types/database";
 /** Reloj interno que se actualiza cada 30 s para re-evaluar la ventana en vivo. */
@@ -58,14 +58,10 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
 
   const lastInboundAt = conversation?.last_inbound_at ?? null;
   const isWindowOpen = conversation ? isMetaWindowOpen(conversation, nowTick) : false;
-  const elapsedMs = lastInboundAt ? nowTick.getTime() - new Date(lastInboundAt).getTime() : null;
-  const remainingMs = isWindowOpen && elapsedMs !== null ? Math.max(0, META_WINDOW_MS - elapsedMs) : 0;
-  const remainingHours = Math.floor(remainingMs / 3_600_000);
-  const remainingMinutes = Math.floor((remainingMs % 3_600_000) / 60_000);
 
   const handleSendFreeMessage = async () => {
     const body = draft.trim();
-    if (!body || !isWindowOpen) return;
+    if (!body) return;
     try {
       const conversationId = conversation?.id ?? await ensureConversation(contact.id);
       await sendMessage(conversationId, { body });
@@ -116,13 +112,6 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
             ) : (
               <span className="block text-xs">Este chat aún no ha recibido mensajes del cliente.</span>
             )}
-          </p>
-        </div>
-      ) : conversation && isWindowOpen ? (
-        <div className="flex items-center gap-2 border-b border-adlive-border bg-emerald-50/70 px-5 py-2.5" role="status">
-          <span className="inline-block h-2 w-2 rounded-full bg-adlive-success" aria-hidden />
-          <p className="text-xs font-medium text-emerald-700">
-            Ventana de 24 h activa · quedan {remainingHours} h {remainingMinutes} min para responder sin plantilla.
           </p>
         </div>
       ) : null}
@@ -205,48 +194,23 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
         ) : null}
 
         <div className="flex items-center gap-2">
-          {isWindowOpen ? (
-            <>
-              <label htmlFor="ficha-input-chat" className="sr-only">
-                Escribe un mensaje
-              </label>
-              <input
-                id="ficha-input-chat"
-                type="text"
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") handleSendFreeMessage();
-                }}
-                placeholder="Escribe un mensaje…"
-                className="h-11 flex-1 rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main placeholder:text-adlive-text-muted/60 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
-              />
-              <Button type="button" variant="primary" size="sm" onClick={handleSendFreeMessage} disabled={!draft.trim()} aria-label="Enviar mensaje" className="h-11 w-11 shrink-0 px-0">
-                <SendHorizonal className="h-4 w-4" aria-hidden />
-              </Button>
-            </>
-          ) : (
-            <>
-              <input
-                type="text"
-                value=""
-                disabled
-                placeholder="Ventana de 24 h cerrada"
-                aria-label="Ventana de 24 horas cerrada: el envío libre está bloqueado"
-                className="h-11 flex-1 cursor-not-allowed rounded-xl border border-adlive-border bg-adlive-canvas-bg px-4 text-sm text-adlive-text-muted"
-              />
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setTemplatePickerOpen((open) => !open)}
-                aria-expanded={templatePickerOpen}
-                className="h-11 shrink-0"
-              >
-                Enviar plantilla
-              </Button>
-            </>
-          )}
+          <label htmlFor="ficha-input-chat" className="sr-only">
+            Escribe un mensaje
+          </label>
+          <input
+            id="ficha-input-chat"
+            type="text"
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleSendFreeMessage();
+            }}
+            placeholder="Escribe un mensaje…"
+            className="h-11 flex-1 rounded-xl border border-adlive-border bg-white px-4 text-sm text-adlive-text-main placeholder:text-adlive-text-muted/60 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
+          />
+          <Button type="button" variant="primary" size="sm" onClick={handleSendFreeMessage} disabled={!draft.trim()} aria-label="Enviar mensaje" className="h-11 w-11 shrink-0 px-0">
+            <SendHorizonal className="h-4 w-4" aria-hidden />
+          </Button>
         </div>
 
       </div>

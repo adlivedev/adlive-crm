@@ -70,16 +70,21 @@ afterEach(() => {
 });
 
 describe("TC-009 / TC-012 — bloqueos del Route Handler de WhatsApp", () => {
-  it("rechaza un contacto con opt-out antes de crear el cliente administrativo o llamar a Meta", async () => {
+  it("permite enviar a un contacto con opt-out (decisión del cliente: el bloqueo se eliminó)", async () => {
     arrangeContact({ opt_out_marketing: true }, now.toISOString());
+    const query: Record<string, unknown> = {};
+    Object.assign(query, {
+      insert: vi.fn(() => query), select: vi.fn(() => query),
+      single: vi.fn(async () => ({ data: { id: "pending-1" }, error: null })),
+      update: vi.fn(() => query), eq: vi.fn(() => query),
+    });
+    mocks.createAdminClient.mockReturnValue({ from: vi.fn(() => query) });
+    mocks.sendMetaText.mockResolvedValue("wamid-out-1");
 
     const response = await POST(request());
 
-    expect(response.status).toBe(409);
-    expect(await response.json()).toEqual({ error: "El contacto pidió no recibir más mensajes. Respeta su opt-out." });
-    expect(mocks.createAdminClient).not.toHaveBeenCalled();
-    expect(mocks.sendMetaText).not.toHaveBeenCalled();
-    expect(mocks.sendMetaTemplate).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(mocks.sendMetaText).toHaveBeenCalled();
   });
 
   it("rechaza texto en el límite exacto de 24 horas antes de crear el cliente administrativo o llamar a Meta", async () => {

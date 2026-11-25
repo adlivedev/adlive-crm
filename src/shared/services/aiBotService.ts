@@ -150,7 +150,7 @@ export async function processAiBotReply(waMessageId: string, expectedTenantId?: 
   ]);
   if (contactError) throw contactError;
   if (botError) throw botError;
-  if (!contact || contact.opt_out_marketing || !bot) return;
+  if (!contact || !bot) return;
   const parsedProvider = providerSchema.safeParse(bot.provider);
   if (!parsedProvider.success) return;
 

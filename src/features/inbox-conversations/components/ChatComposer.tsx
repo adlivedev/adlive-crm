@@ -2,46 +2,30 @@
 
 /**
  * M5 — Barra de envío inferior del chat.
- * - Plantillas de WhatsApp, texto y respuestas rápidas.
- * - Envío con Enter respetando el VALIDADOR ESTRICTO de la ventana de 24 h de Meta:
- *   ventana cerrada → input bloqueado y solo «Enviar plantilla» habilitado.
+ * - Plantillas de WhatsApp, texto libre y respuestas rápidas.
+ * - Escritura libre siempre habilitada: el servidor valida la ventana de 24 h de
+ *   Meta y devuelve un error claro si el envío libre no está permitido.
  */
 
-import { Clock3, FileText, SendHorizonal, Zap } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FileText, SendHorizonal, Zap } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/shared/components/ui/Button";
-import { META_WINDOW_MS } from "@/shared/lib/whatsapp";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact, Conversation, WhatsAppTemplate } from "@/shared/types/database";
 
-import { QUICK_REPLIES, fillTemplateBody, isMetaWindowOpen } from "./inboxUtils";
-
-const CLOCK_TICK_MS = 30_000;
+import { QUICK_REPLIES, fillTemplateBody } from "./inboxUtils";
 
 export function ChatComposer({ conversation, contact }: { conversation: Conversation; contact: Contact }) {
   const { templates, sendMessage, isMutating } = useCrm();
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<"template" | "quick" | null>(null);
-  const [nowTick, setNowTick] = useState<Date>(() => new Date());
-
-  /* Reloj vivo: la ventana de 24 h se re-evalúa sola. */
-  useEffect(() => {
-    const interval = window.setInterval(() => setNowTick(new Date()), CLOCK_TICK_MS);
-    return () => window.clearInterval(interval);
-  }, []);
 
   const approvedTemplates = useMemo(() => templates.filter((template) => template.status === "APPROVED"), [templates]);
 
-  const windowOpen = isMetaWindowOpen(conversation, nowTick);
-  const lastInboundAt = conversation.last_inbound_at;
-  const remainingMs = windowOpen && lastInboundAt
-    ? Math.max(0, META_WINDOW_MS - (nowTick.getTime() - new Date(lastInboundAt).getTime()))
-    : 0;
-
   const handleSend = async () => {
     const body = draft.trim();
-    if (!body || !windowOpen || isMutating) return;
+    if (!body || isMutating) return;
     try {
       await sendMessage(conversation.id, { body });
       setDraft("");
@@ -62,7 +46,7 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
   };
 
   const handleQuickReply = async (reply: string) => {
-    if (!windowOpen || isMutating) return;
+    if (isMutating) return;
     try {
       await sendMessage(conversation.id, { body: reply });
       setPicker(null);
@@ -71,27 +55,7 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
 
   return (
     <div className="border-t border-adlive-border px-4 py-3">
-      {/* Estado de la ventana de 24 h */}
-      {lastInboundAt ? (
-        windowOpen ? (
-          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-emerald-700" role="status">
-            <span className="inline-block h-1.5 w-1.5 rounded-full bg-adlive-success" aria-hidden />
-            Ventana de 24 h activa · quedan {Math.floor(remainingMs / 3_600_000)} h {Math.floor((remainingMs % 3_600_000) / 60_000)} min
-          </p>
-        ) : (
-          <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-adlive-text-muted" role="status">
-            <Clock3 className="h-3.5 w-3.5" aria-hidden />
-            Ventana de 24 h cerrada: solo puedes enviar una plantilla aprobada.
-          </p>
-        )
-      ) : (
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-adlive-text-muted" role="status">
-          <Clock3 className="h-3.5 w-3.5" aria-hidden />
-          Aún no hay mensajes del cliente: usa una plantilla aprobada para iniciar la conversación.
-        </p>
-      )}
-
-      {/* Selector desplegable (plantillas / adjuntos / respuestas rápidas) */}
+      {/* Selector desplegable (plantillas / respuestas rápidas) */}
       {picker ? (
         <div className="mb-2 rounded-xl border border-adlive-border bg-adlive-canvas-bg/60 p-3" role="listbox" aria-label="Opciones de envío">
           {picker === "template" ? (
@@ -124,8 +88,7 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
                     <button
                       type="button"
                       onClick={() => handleQuickReply(reply)}
-                      disabled={!windowOpen}
-                      className="w-full cursor-pointer rounded-lg border border-adlive-border bg-white px-3 py-2 text-left text-xs leading-5 text-adlive-text-main transition-colors hover:border-adlive-primary hover:bg-adlive-primary-light/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="w-full cursor-pointer rounded-lg border border-adlive-border bg-white px-3 py-2 text-left text-xs leading-5 text-adlive-text-main transition-colors hover:border-adlive-primary hover:bg-adlive-primary-light/50"
                     >
                       {reply}
                     </button>
@@ -156,36 +119,24 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
         <label htmlFor="chat-input" className="sr-only">
           Escribe un mensaje
         </label>
-        {windowOpen ? (
-          <input
-            id="chat-input"
-            type="text"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") handleSend();
-            }}
-            placeholder="Escribe un mensaje..."
-            className="h-10 flex-1 rounded-xl border border-adlive-border bg-white px-3 text-sm text-adlive-text-main placeholder:text-adlive-text-muted/60 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
-          />
-        ) : (
-          <input
-            id="chat-input"
-            type="text"
-            value=""
-            disabled
-            placeholder="Ventana de 24 h cerrada"
-            aria-label="Ventana de 24 horas cerrada: el envío libre está bloqueado"
-            className="h-10 flex-1 cursor-not-allowed rounded-xl border border-adlive-border bg-adlive-canvas-bg px-3 text-sm text-adlive-text-muted"
-          />
-        )}
+        <input
+          id="chat-input"
+          type="text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") handleSend();
+          }}
+          placeholder="Escribe un mensaje..."
+          className="h-10 flex-1 rounded-xl border border-adlive-border bg-white px-3 text-sm text-adlive-text-main placeholder:text-adlive-text-muted/60 focus:border-adlive-primary focus:outline-none focus:ring-2 focus:ring-adlive-primary/20"
+        />
         <Button
           type="button"
           variant="primary"
           size="sm"
-          onClick={windowOpen ? handleSend : () => setPicker("template")}
-          disabled={windowOpen && !draft.trim()}
-          aria-label={windowOpen ? "Enviar mensaje" : "Enviar plantilla aprobada"}
+          onClick={handleSend}
+          disabled={!draft.trim()}
+          aria-label="Enviar mensaje"
           className="h-10 w-10 shrink-0 px-0"
         >
           <SendHorizonal className="h-4 w-4" aria-hidden />

@@ -2,7 +2,9 @@ import "server-only";
 
 import { z } from "zod";
 
+import { normalizeCoPhone } from "@/shared/lib/phone";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
+import { consolidateLeadIdentity } from "@/shared/services/contactIdentityService";
 import { executeWorkflowsForEvent } from "@/shared/services/workflowExecutionService";
 
 function nullableText(max: number) {
@@ -24,10 +26,14 @@ const emailSchema = z.preprocess(
   z.string().trim().email().max(255).nullish(),
 ).transform((value) => value ?? null);
 
-const phoneSchema = z.string().trim().min(7).max(30).transform((value) => {
-  const digits = value.replace(/\D/g, "").replace(/^00/, "");
-  return `+${digits}`;
-}).pipe(z.string().regex(/^\+[1-9]\d{7,14}$/, "phone_e164 debe incluir código de país."));
+const phoneSchema = z.string().trim().min(7).max(30).transform((value, ctx) => {
+  const result = normalizeCoPhone(value);
+  if (!result.ok) {
+    ctx.addIssue({ code: "custom", message: result.reason });
+    return z.NEVER;
+  }
+  return result.e164;
+});
 
 const attributionFields = {
   utm_source: nullableText(150),
@@ -97,10 +103,22 @@ export async function ingestLeadWebPayload(payload: LeadWebPayload) {
   if (isTokenError(error)) throw new InvalidPublicWebhookTokenError();
   if (error) throw new Error(`Supabase RPC ingest_web_lead: ${error.message}`);
 
-  return z.array(z.object({
+  const result = z.array(z.object({
     out_contact_id: z.string().uuid(),
     out_assigned_member_id: z.string().uuid().nullable(),
-  })).length(1).parse(data)[0];
+  })).length(1).parse(data)[0]!;
+  const { data: ingested } = await admin.from("contacts").select("tenant_id").eq("id", result.out_contact_id).single();
+  if (ingested) {
+    await consolidateLeadIdentity({
+      tenantId: ingested.tenant_id,
+      contactId: result.out_contact_id,
+      phoneE164: payload.phone_e164,
+      email: payload.email,
+      source: "webhook",
+      payload: { lead_source: payload.lead_source, utm_source: payload.utm_source, utm_campaign: payload.utm_campaign },
+    }).catch(() => result.out_contact_id);
+  }
+  return result;
 }
 
 export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadWebPayload) {
@@ -134,10 +152,19 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
      disparador «Contacto creado / Formulario Web» (con su filtro opcional
      de campaña/landing/etiqueta) se ejecutan ahora sobre el nuevo lead. Un
      fallo aquí nunca rompe la respuesta del webhook de captación. */
+  const workflowContactId = await consolidateLeadIdentity({
+    tenantId,
+    contactId: result.out_contact_id,
+    phoneE164: payload.phone,
+    email: payload.email,
+    source: "form",
+    detail: `Lead captado por formulario (${payload.utm_source ?? payload.lead_source ?? "Formulario Web"}).`,
+    payload: { utm: { source: payload.utm_source, medium: payload.utm_medium, campaign: payload.utm_campaign }, custom_fields: payload.custom_fields },
+  }).catch(() => result.out_contact_id);
   try {
     await executeWorkflowsForEvent({
       tenantId,
-      contactId: result.out_contact_id,
+      contactId: workflowContactId,
       event: "contact_created",
       utmCampaign: payload.utm_campaign,
       landingUrl: payload.landing_url,
@@ -145,5 +172,5 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
   } catch (workflowError) {
     console.error("Workflow execution after lead ingestion failed", workflowError instanceof Error ? workflowError.message : "unknown error");
   }
-  return result;
+  return { ...result, out_contact_id: workflowContactId };
 }

@@ -67,7 +67,7 @@ export function InviteMemberModal({ open, onClose, onInvite, onInvited }: Invite
             setEmail(event.target.value);
             setError("");
           }}
-          placeholder="asesor@adlive.co"
+          placeholder="nombre@empresa.com"
           autoComplete="email"
         />
         <div className="flex flex-col gap-1.5">

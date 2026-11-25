@@ -25,7 +25,6 @@ export async function POST(request: Request) {
       supabase.from("contacts").select("*").eq("id", conversation.contact_id).single(),
     ]);
     if (!member || !contact) return NextResponse.json({ error: "No autorizado." }, { status: 403 });
-    if (contact.opt_out_marketing) return NextResponse.json({ error: "El contacto pidió no recibir más mensajes. Respeta su opt-out." }, { status: 409 });
     if (input.msg_type === "text" && !isWithinMetaWindow(conversation.last_inbound_at, new Date())) {
       return NextResponse.json({ error: "La ventana de 24 horas está cerrada. Usa una plantilla aprobada." }, { status: 409 });
     }
