@@ -140,7 +140,7 @@ export function SmtpSettingsTab() {
           </div>
           <div className="rounded-xl border border-adlive-border p-4">
             <Input label="Destinatario del correo de prueba" type="email" value={testEmail} onChange={(event) => setTestEmail(event.target.value)} required maxLength={255} />
-            <p className="mt-2 text-xs text-adlive-text-muted">La prueba guarda la configuración y realiza un envío real con la marca del workspace ADlive.</p>
+            <p className="mt-2 text-xs text-adlive-text-muted">La prueba guarda la configuración y realiza un envío real con la marca de tu workspace.</p>
           </div>
           {error ? <p role="alert" className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</p> : null}
           {message ? <p role="status" className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{message}</p> : null}
