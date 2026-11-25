@@ -32,9 +32,16 @@ const TYPE_OPTIONS: Array<{ value: CustomFieldType; label: string }> = [
 
 const TYPE_LABELS: Record<CustomFieldType, string> = {
   text: "Texto",
+  textarea: "Área de texto",
+  name: "Apellido/Nombre",
+  phone: "Teléfono (+57)",
+  email: "Correo",
   number: "Número",
-  select: "Lista desplegable",
+  select: "Selección (Dropdown)",
+  checkbox: "Casilla (Checkbox)",
+  radio: "Opción única (Radio)",
   date: "Fecha",
+  html: "Bloque de texto/HTML",
 };
 
 const INPUT_CLASS =

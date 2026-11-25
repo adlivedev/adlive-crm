@@ -3,7 +3,9 @@ import "server-only";
 import { after, NextResponse } from "next/server";
 
 import { isValidMetaSignature, safeEqualSecret } from "@/shared/lib/metaWebhookSecurity";
+import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { processAiBotReply } from "@/shared/services/aiBotService";
+import { enqueueSlaAlertJob, ensureDailySummaryJob, notifyInboundMessage } from "@/shared/services/conversationAlertService";
 import type { ResolvedTenantIntegration } from "@/shared/services/tenantIntegrationService";
 import { credential, publicCredential } from "@/shared/services/tenantIntegrationService";
 import { WebhookHttpError, parseWebhookJson, readWebhookBody, webhookError } from "@/shared/services/webhookHttp";
@@ -48,6 +50,8 @@ async function ingestDeferred(payload: Parameters<typeof ingestWhatsAppPayload>[
   for (const waMessageId of insertedWaMessageIds) {
     try { await processAiBotReply(waMessageId, integration.tenant_id); }
     catch (error) { console.error("WhatsApp AI reply failed", error instanceof Error ? error.message : "unknown error"); }
+    try { await notifyInboundMessage(integration.tenant_id, waMessageId); }
+    catch (error) { console.error("WhatsApp inbound notification failed", error instanceof Error ? error.message : "unknown error"); }
   }
   await triggerWorkflowsForFirstMessage(integration.tenant_id, insertedWaMessageIds);
 }
@@ -89,7 +93,19 @@ export async function handleWhatsAppPost(
       for (const waMessageId of insertedWaMessageIds) {
         try { await processAiBotReply(waMessageId, integration.tenant_id); }
         catch (error) { console.error("WhatsApp AI reply failed", error instanceof Error ? error.message : "unknown error"); }
+        try { await notifyInboundMessage(integration.tenant_id, waMessageId); }
+        catch (error) { console.error("WhatsApp inbound notification failed", error instanceof Error ? error.message : "unknown error"); }
       }
+      // Fase 2 — SLA: programa la alerta de «sin respuesta >1 h» por conversación.
+      try {
+        const { data: pendingConversations } = await createAdminClient().from("conversations")
+          .select("id").eq("tenant_id", integration.tenant_id).eq("handler_mode", "human").eq("needs_reply", true);
+        for (const conversation of pendingConversations ?? []) {
+          await enqueueSlaAlertJob(integration.tenant_id, conversation.id, 1);
+        }
+      } catch (error) { console.error("WhatsApp SLA enqueue failed", error instanceof Error ? error.message : "unknown error"); }
+      try { await ensureDailySummaryJob(integration.tenant_id); }
+      catch (error) { console.error("Daily summary enqueue failed", error instanceof Error ? error.message : "unknown error"); }
       await triggerWorkflowsForFirstMessage(integration.tenant_id, insertedWaMessageIds);
     });
     return NextResponse.json({ ok: true, ...result }, { headers: { "Cache-Control": "no-store" } });

@@ -8,13 +8,15 @@ import { useCrm } from "@/shared/services/crmStore";
 import { BrandingTab } from "./BrandingTab";
 import { CustomFieldsTab } from "./CustomFieldsTab";
 import { CustomValuesTab } from "./CustomValuesTab";
+import { FormsBuilderTab } from "./FormsBuilderTab";
 import { SmtpSettingsTab } from "./SmtpSettingsTab";
 import { WebhookUtmTab } from "./WebhookUtmTab";
 
-type SettingsTab = "fields" | "values" | "webhook" | "branding" | "workspaces" | "smtp";
+type SettingsTab = "fields" | "forms" | "values" | "webhook" | "branding" | "workspaces" | "smtp";
 
 const BASE_TABS: Array<{ key: SettingsTab; label: string }> = [
   { key: "fields", label: "Campos personalizados" },
+  { key: "forms", label: "Constructor de formularios" },
   { key: "values", label: "Valores personalizados" },
   { key: "webhook", label: "Landings, Formularios y Guía" },
 ];
@@ -56,6 +58,7 @@ export function SettingsView() {
 
       <div role="tabpanel" id={`settings-panel-${tab}`} aria-labelledby={`settings-tab-${tab}`}>
         {tab === "fields" ? <CustomFieldsTab /> : null}
+        {tab === "forms" ? <FormsBuilderTab /> : null}
         {tab === "values" ? <CustomValuesTab /> : null}
         {tab === "webhook" ? <WebhookUtmTab /> : null}
         {tab === "branding" && canEditBrand ? <BrandingTab /> : null}

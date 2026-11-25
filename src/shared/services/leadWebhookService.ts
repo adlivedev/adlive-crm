@@ -197,6 +197,14 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
         contactName: contactRow.full_name,
         memberId: result.out_assigned_member_id ?? contactRow.assigned_member_id,
       });
+      // Fase 2 — correo prioritario directo y natural para el agente asignado.
+      const { emailLeadAssigned } = await import("@/shared/services/conversationAlertService");
+      await emailLeadAssigned({
+        tenantId,
+        contactId: workflowContactId,
+        contactName: contactRow.full_name,
+        memberId: result.out_assigned_member_id ?? contactRow.assigned_member_id,
+      });
     }
   } catch (notificationError) {
     console.error("Notification after lead ingestion failed", notificationError instanceof Error ? notificationError.message : "unknown error");

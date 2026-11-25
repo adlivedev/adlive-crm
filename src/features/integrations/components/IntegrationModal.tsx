@@ -1,12 +1,13 @@
 "use client";
 
-import { Check, Copy, RefreshCw, Webhook } from "lucide-react";
+import { Check, ChevronDown, Copy, RefreshCw, Webhook } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/features/contacts/components/Modal";
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
 import type { IntegrationProvider, TenantIntegrationVault } from "@/shared/types/database";
+import { INTEGRATION_GUIDES } from "./integrationGuides";
 import type { IntegrationSpec } from "./integrationsData";
 
 export interface IntegrationModalProps {
@@ -106,6 +107,27 @@ export function IntegrationModal({ open, spec, integration, webhookUrl, canManag
         </div>
 
         {!canManage ? <p className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800">Solo un owner o admin del workspace puede modificar o probar esta integración.</p> : null}
+
+        <details className="group rounded-xl border border-adlive-border bg-white">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-semibold text-adlive-text-main [&::-webkit-details-marker]:hidden">
+            Guía paso a paso: {spec.name}
+            <ChevronDown className="h-4 w-4 shrink-0 text-adlive-text-muted transition-transform group-open:rotate-180" aria-hidden />
+          </summary>
+          <div className="border-t border-adlive-border px-4 pb-4 pt-3">
+            <p className="text-sm leading-6 text-adlive-text-muted">{INTEGRATION_GUIDES[spec.provider].intro}</p>
+            <ol className="mt-3 flex flex-col gap-3">
+              {INTEGRATION_GUIDES[spec.provider].steps.map((step, index) => (
+                <li key={step.title} className="flex gap-3">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-adlive-cyan-light text-xs font-bold text-cyan-700" aria-hidden>{index + 1}</span>
+                  <div>
+                    <p className="text-sm font-semibold text-adlive-text-main">{step.title}</p>
+                    <p className="mt-0.5 text-sm leading-6 text-adlive-text-muted">{step.detail}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </details>
         {spec.fields.map((field) => (
           <div key={field.key} className="flex flex-col gap-1.5">
             <Input label={field.label} value={values[field.key] ?? ""} onChange={(event) => setValues((previous) => ({ ...previous, [field.key]: event.target.value }))}

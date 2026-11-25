@@ -12,9 +12,10 @@ import type { AiBot, AiBotProvider } from "@/shared/types/database";
 
 import { AiProviderCard } from "./AiProviderCard";
 import { AiProviderKeyModal } from "./AiProviderKeyModal";
-import { NewBotModal } from "./NewBotModal";
+import { ConsumptionPanel } from "./ConsumptionPanel";
+import { NewBotModal, type BotFormInput } from "./NewBotModal";
 import { TestBotModal } from "./TestBotModal";
-import { AI_PROVIDER_SPECS, PROVIDER_LABELS } from "./botsData";
+import { AI_PROVIDER_SPECS, BOT_ROLE_OPTIONS, PROVIDER_LABELS } from "./botsData";
 
 const GUIDE_STEPS = [
   {
@@ -32,7 +33,7 @@ const GUIDE_STEPS = [
 ];
 
 export function BotsView() {
-  const { aiBots, createAiBot, updateAiBot, deleteAiBot, toggleAiBot } = useCrm();
+  const { aiBots, createAiBot, updateAiBot, deleteAiBot, toggleAiBot, activeTenant, updateTenantBotDefault, refreshData } = useCrm();
   const [showNewBot, setShowNewBot] = useState(false);
   const [editingBot, setEditingBot] = useState<AiBot | null>(null);
   const [testingBot, setTestingBot] = useState<AiBot | null>(null);
@@ -42,7 +43,7 @@ export function BotsView() {
   const [announcement, setAnnouncement] = useState("");
   const handleKeySaved = (provider: AiBotProvider, masked: string) => setAnnouncement(`API Key de ${PROVIDER_LABELS[provider]} guardada en el servidor (${masked}).`);
 
-  const handleSaveBot = (botId: string | null, input: { name: string; product_line: string; provider: AiBotProvider; system_prompt: string }) => {
+  const handleSaveBot = (botId: string | null, input: BotFormInput) => {
     if (botId) {
       updateAiBot(botId, input);
       setAnnouncement(`Bot «${input.name}» actualizado.`);
@@ -108,7 +109,7 @@ export function BotsView() {
               <li key={bot.id}>
                 <Card className="flex flex-wrap items-center gap-4 p-5">
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-adlive-text-main">{bot.name}</h3><Badge tone={bot.provider === "integrated" ? "success" : "cyan"}>{PROVIDER_LABELS[bot.provider]}</Badge><Badge tone="neutral">{bot.product_line}</Badge>{bot.is_active ? <Badge tone="success">Activo</Badge> : <Badge tone="neutral">Inactivo</Badge>}</div>
+                    <div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-adlive-text-main">{bot.name}</h3><Badge tone={bot.provider === "integrated" ? "success" : "cyan"}>{PROVIDER_LABELS[bot.provider]}</Badge><Badge tone="neutral">{bot.product_line}</Badge><Badge tone="neutral">{BOT_ROLE_OPTIONS.find((role) => role.id === bot.bot_role)?.label ?? "Personalizado"} · prioridad {bot.priority}</Badge>{bot.model_name ? <Badge tone="neutral">{bot.model_name}</Badge> : null}{bot.is_active ? <Badge tone="success">Activo</Badge> : <Badge tone="neutral">Inactivo</Badge>}</div>
                     <p className="mt-1 line-clamp-2 text-sm text-adlive-text-muted">{bot.system_prompt}</p>
                     <p className="mt-1 text-xs text-adlive-text-muted">Creado {formatRelativeTime(bot.created_at)}</p>
                   </div>
@@ -131,6 +132,47 @@ export function BotsView() {
           </ul>
         )}
       </section>
+
+      {/* Fase 2 — modo Bot por defecto para contactos nuevos del workspace. */}
+      {activeTenant ? (
+        <section aria-labelledby="bot-default-title" className="rounded-2xl border border-adlive-border bg-adlive-card-bg p-5">
+          <h2 id="bot-default-title" className="text-sm font-semibold text-adlive-text-main">Contactos nuevos: ¿modo Bot automático?</h2>
+          <p className="mt-1 text-sm leading-6 text-adlive-text-muted">Cuando llegue un contacto nuevo por WhatsApp, decide si la conversación arranca atendida por el bot de mayor prioridad o directamente con un asesor humano. Cualquier asesor puede cambiar el modo luego desde el chat.</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={activeTenant.default_new_contact_mode === "bot"}
+              aria-label="Iniciar conversaciones nuevas en modo Bot"
+              onClick={() => { updateTenantBotDefault({ default_new_contact_mode: activeTenant.default_new_contact_mode === "bot" ? "human" : "bot" }); setAnnouncement(`Conversaciones nuevas: modo ${activeTenant.default_new_contact_mode === "bot" ? "Humano" : "Bot"}.`); }}
+              className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${activeTenant.default_new_contact_mode === "bot" ? "bg-adlive-primary" : "bg-adlive-border"}`}
+            ><span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${activeTenant.default_new_contact_mode === "bot" ? "left-[22px]" : "left-0.5"}`} aria-hidden /></button>
+            <span className="text-sm text-adlive-text-main">
+              {activeTenant.default_new_contact_mode === "bot"
+                ? `Activado: los contactos nuevos arrancan en modo Bot (atención automática${activeTenant.default_bot_id ? " con el bot marcado como principal" : " con el bot de mayor prioridad"}).`
+                : "Desactivado: los contactos nuevos arrancan con un asesor humano."}
+            </span>
+          </div>
+          {activeTenant.default_new_contact_mode === "bot" && aiBots.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label htmlFor="default-bot-select" className="text-sm font-medium text-adlive-text-main">Bot principal:</label>
+              <select
+                id="default-bot-select"
+                value={activeTenant.default_bot_id ?? ""}
+                onChange={(event) => { updateTenantBotDefault({ default_bot_id: event.target.value || null }); refreshData(); setAnnouncement("Bot principal actualizado."); }}
+                className="h-10 rounded-xl border border-adlive-border bg-white px-3 text-sm text-adlive-text-main focus:border-adlive-primary focus:outline-none"
+              >
+                <option value="">Mayor prioridad (automático)</option>
+                {aiBots.map((bot) => (
+                  <option key={bot.id} value={bot.id}>{bot.name} (prioridad {bot.priority})</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <ConsumptionPanel />
       <NewBotModal
         open={showNewBot}
         bot={editingBot}

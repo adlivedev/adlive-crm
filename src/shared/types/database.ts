@@ -56,6 +56,8 @@ export interface Tenant {
   public_webhook_token: string;
   branding?: TenantBranding;
   status?: "active" | "suspended";
+  default_new_contact_mode?: "bot" | "human";
+  default_bot_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -77,7 +79,7 @@ export interface TenantMember {
  * 2. CONTACTOS, CAMPOS PERSONALIZADOS Y ATRIBUCIÓN UTM
  * ========================================================================== */
 
-export type CustomFieldType = "text" | "number" | "select" | "date";
+export type CustomFieldType = "text" | "textarea" | "name" | "phone" | "email" | "number" | "select" | "checkbox" | "radio" | "date" | "html";
 
 export interface CustomFieldDefinition {
   id: string;
@@ -359,7 +361,28 @@ export interface AiBot {
   product_line: string;
   provider: AiBotProvider;
   system_prompt: string;
+  model_name: string | null;
+  fallback_models: string[];
+  priority: number;
+  bot_role: "greeter" | "pricing" | "faq" | "custom";
+  trigger_keywords: string[];
   is_active: boolean;
+  created_at: string;
+}
+
+export interface AiUsageLog {
+  id: string;
+  tenant_id: string;
+  bot_id: string | null;
+  provider: string;
+  model_name: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  status: string;
+  latency_ms: number | null;
+  error_code: string | null;
   created_at: string;
 }
 

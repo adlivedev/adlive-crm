@@ -1,5 +1,6 @@
 import "server-only";
 
+import { resolveNotificationTargets, type NotificationMember } from "@/shared/lib/notificationTargets";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 interface NotifyInput {
@@ -31,12 +32,12 @@ export async function createNotification(input: NotifyInput): Promise<void> {
 export async function notifyContactCreated(input: { tenantId: string; contactId: string; contactName: string; source: string; assignedMemberId?: string | null }) {
   const admin = createAdminClient();
   const { data: members } = await admin.from("tenant_members")
-    .select("id,role").eq("tenant_id", input.tenantId).eq("is_active", true)
-    .in("role", ["owner", "admin"]);
-  for (const member of members ?? []) {
+    .select("id,role,is_active").eq("tenant_id", input.tenantId).eq("is_active", true);
+  const targets = resolveNotificationTargets((members ?? []) as NotificationMember[], { targetRole: "admin" });
+  for (const memberId of targets) {
     await createNotification({
       tenantId: input.tenantId,
-      recipientMemberId: member.id,
+      recipientMemberId: memberId,
       type: "contact_created",
       title: "Nuevo contacto registrado",
       body: `${input.contactName} llegó por ${input.source}.`,

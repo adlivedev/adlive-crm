@@ -10,7 +10,21 @@ import { Input } from "@/shared/components/ui/Input";
 import { useCrm } from "@/shared/services/crmStore";
 import type { CustomFieldDefinition, CustomFieldType } from "@/shared/types/database";
 
-const TYPE_LABELS: Record<CustomFieldType, string> = { text: "Texto", number: "Número", select: "Lista desplegable", date: "Fecha" };
+const TYPE_LABELS: Record<CustomFieldType, string> = {
+  text: "Texto",
+  textarea: "Área de texto",
+  name: "Apellido/Nombre",
+  phone: "Teléfono (+57)",
+  email: "Correo",
+  number: "Número",
+  select: "Selección (Dropdown)",
+  checkbox: "Casilla (Checkbox)",
+  radio: "Opción única (Radio)",
+  date: "Fecha",
+  html: "Bloque de texto/HTML",
+};
+/** Tipos que usan la lista de opciones (dropdown, radio). */
+const OPTION_TYPES: CustomFieldType[] = ["select", "radio"];
 const BASE_FIELDS = [
   { name: "Nombre", key: "first_name", description: "Nombre de pila del contacto" },
   { name: "Apellido", key: "last_name", description: "Se combina con el nombre" },
@@ -43,7 +57,7 @@ export function CustomFieldsTab() {
   function create(event: React.FormEvent) {
     event.preventDefault();
     if (!isValid) return;
-    addCustomField({ field_key: slug, field_label: label.trim(), field_type: fieldType, options: fieldType === "select" ? options.split(",").map((option) => option.trim()).filter(Boolean) : [] });
+    addCustomField({ field_key: slug, field_label: label.trim(), field_type: fieldType, options: OPTION_TYPES.includes(fieldType) ? options.split(",").map((option) => option.trim()).filter(Boolean) : [] });
     setAnnouncement(`Campo «${label.trim()}» creado. Ya aparece en las landings y formularios.`);
     setLabel(""); setFieldType("text"); setOptions("");
   }
@@ -54,7 +68,7 @@ export function CustomFieldsTab() {
 
   function saveEdit(field: CustomFieldDefinition) {
     if (editLabel.trim().length < 2) return;
-    updateCustomField(field.id, { field_label: editLabel.trim(), field_type: editType, options: editType === "select" ? editOptions.split(",").map((option) => option.trim()).filter(Boolean) : [] });
+    updateCustomField(field.id, { field_label: editLabel.trim(), field_type: editType, options: OPTION_TYPES.includes(editType) ? editOptions.split(",").map((option) => option.trim()).filter(Boolean) : [] });
     setAnnouncement(`Campo «${editLabel.trim()}» actualizado. La clave ${field.field_key} se conservó.`);
     setEditingId(null);
   }
@@ -73,7 +87,7 @@ export function CustomFieldsTab() {
         <form onSubmit={create} className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Input label="Nombre del campo" value={label} onChange={(event) => setLabel(event.target.value)} placeholder="Ej. Operador actual" />
           <label className="flex flex-col gap-1.5 text-sm font-medium text-adlive-text-main">Tipo<select value={fieldType} onChange={(event) => setFieldType(event.target.value as CustomFieldType)} className="h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm outline-none focus:border-adlive-primary focus:ring-2 focus:ring-adlive-primary/20">{(Object.keys(TYPE_LABELS) as CustomFieldType[]).map((type) => <option key={type} value={type}>{TYPE_LABELS[type]}</option>)}</select></label>
-          {fieldType === "select" ? <Input label="Opciones (separadas por coma)" value={options} onChange={(event) => setOptions(event.target.value)} placeholder="Claro, Tigo, WOM" /> : <div className="hidden xl:block" />}
+          {OPTION_TYPES.includes(fieldType) ? <Input label="Opciones (separadas por coma)" value={options} onChange={(event) => setOptions(event.target.value)} placeholder="Claro, Tigo, WOM" /> : <div className="hidden xl:block" />}
           <div className="flex items-end"><Button type="submit" disabled={!isValid} className="w-full"><Plus className="h-4 w-4" aria-hidden />Crear campo</Button></div>
           {slug ? <p className={`text-xs md:col-span-2 xl:col-span-4 ${keyTaken ? "text-adlive-danger" : "text-adlive-text-muted"}`}>Clave: <code>{slug}</code>{keyTaken ? " · ya existe o pertenece a un campo base" : ""}</p> : null}
         </form>
@@ -88,7 +102,7 @@ export function CustomFieldsTab() {
               <td className="px-6 py-3.5 font-medium text-adlive-text-main">{editing ? <input aria-label={`Editar nombre de ${field.field_label}`} value={editLabel} onChange={(event) => setEditLabel(event.target.value)} className="h-10 w-full rounded-lg border border-adlive-border px-3 outline-none focus:border-adlive-primary" /> : field.field_label}</td>
               <td className="px-4 py-3.5 font-mono text-xs text-adlive-text-muted">{field.field_key}</td>
               <td className="px-4 py-3.5">{editing ? <select aria-label="Editar tipo" value={editType} onChange={(event) => setEditType(event.target.value as CustomFieldType)} className="h-10 rounded-lg border border-adlive-border bg-white px-2 text-xs">{(Object.keys(TYPE_LABELS) as CustomFieldType[]).map((type) => <option key={type} value={type}>{TYPE_LABELS[type]}</option>)}</select> : <Badge tone="neutral">{TYPE_LABELS[field.field_type]}</Badge>}</td>
-              <td className="px-4 py-3.5 text-xs text-adlive-text-muted">{editing && editType === "select" ? <input aria-label="Editar opciones" value={editOptions} onChange={(event) => setEditOptions(event.target.value)} className="h-10 w-full rounded-lg border border-adlive-border px-3 outline-none focus:border-adlive-primary" /> : editing ? "—" : field.options.length ? field.options.join(", ") : "—"}</td>
+              <td className="px-4 py-3.5 text-xs text-adlive-text-muted">{editing && OPTION_TYPES.includes(editType) ? <input aria-label="Editar opciones" value={editOptions} onChange={(event) => setEditOptions(event.target.value)} className="h-10 w-full rounded-lg border border-adlive-border px-3 outline-none focus:border-adlive-primary" /> : editing ? "—" : field.options.length ? field.options.join(", ") : "—"}</td>
               <td className="px-4 py-3.5"><div className="flex justify-end gap-1">{editing ? <><Button size="sm" variant="ghost" aria-label="Guardar campo" onClick={() => saveEdit(field)} disabled={editLabel.trim().length < 2}><Check className="h-4 w-4 text-adlive-success" aria-hidden /></Button><Button size="sm" variant="ghost" aria-label="Cancelar edición" onClick={() => setEditingId(null)}><X className="h-4 w-4" aria-hidden /></Button></> : <><Button size="sm" variant="ghost" aria-label={`Editar campo ${field.field_label}`} onClick={() => startEdit(field)}><Pencil className="h-4 w-4" aria-hidden /></Button><Button size="sm" variant="ghost" aria-label={pendingDeleteId === field.id ? `Confirmar eliminación de ${field.field_label}` : `Eliminar campo ${field.field_label}`} className={pendingDeleteId === field.id ? "text-adlive-danger" : "text-adlive-text-muted"} onClick={() => { if (pendingDeleteId !== field.id) { setPendingDeleteId(field.id); return; } deleteCustomField(field.id); setPendingDeleteId(null); setAnnouncement(`Campo «${field.field_label}» eliminado.`); }} onBlur={() => setPendingDeleteId((previous) => previous === field.id ? null : previous)}><Trash2 className="h-4 w-4" aria-hidden />{pendingDeleteId === field.id ? "Confirmar" : ""}</Button></>}</div></td>
             </tr>;
           })}</tbody>

@@ -58,6 +58,22 @@ export const PROVIDER_LABELS: Record<AiBotProvider, string> = {
   gemini: "Google (Gemini)",
 };
 
+/** Modelos seleccionables por proveedor (Fase 2). Espejo client-safe de PROVIDER_MODELS del servicio. */
+export const PROVIDER_MODELS: Record<Exclude<AiBotProvider, "integrated">, string[]> = {
+  gemini: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-flash-latest"],
+  openai: ["gpt-4o-mini", "gpt-4o"],
+  anthropic: ["claude-3-5-haiku", "claude-3-5-sonnet"],
+  grok: ["grok-2", "grok-3-mini"],
+};
+
+/** Roles del orquestador multi-bot (Fase 2). */
+export const BOT_ROLE_OPTIONS: Array<{ id: "greeter" | "pricing" | "faq" | "custom"; label: string; hint: string }> = [
+  { id: "greeter", label: "Saludo y guía", hint: "Atiende el primer mensaje y orienta al cliente." },
+  { id: "pricing", label: "Precios y planes", hint: "Responde precios, planes, costos y promociones." },
+  { id: "faq", label: "Preguntas frecuentes", hint: "Resuelve dudas de soporte, horarios y trámites." },
+  { id: "custom", label: "Personalizado", hint: "Sin rol fijo: responde según sus palabras clave o su prioridad." },
+];
+
 export interface BotObjectivePreset {
   id: string;
   label: string;

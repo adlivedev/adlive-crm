@@ -22,10 +22,39 @@ export interface TenantLanding {
   custom_primary_color: string | null;
   custom_bg_color: string | null;
   custom_text_color: string | null;
+  form_id: string | null;
+  font_family: string | null;
+  sections_config: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
+
+/** Constructor de formularios (Fase 2): campos seleccionados, layout y tema. */
+export interface TenantForm {
+  id: string;
+  tenant_id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  columns: 1 | 2 | 3;
+  is_multistep: boolean;
+  steps: Array<{ title: string; field_keys: string[] }>;
+  fields: string[];
+  html_blocks: Array<{ id: string; content_html: string }>;
+  theme_config: {
+    card_bg?: string;
+    input_bg?: string;
+    button_color?: string;
+    font_family?: string;
+  };
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Fuentes tipográficas disponibles para formularios y landings (Fase 2). */
+export const FORM_FONT_FAMILIES = ["Inter", "Plus Jakarta Sans", "DM Sans", "Roboto", "Poppins"] as const;
 
 export interface CaptureAttribution {
   utm_source?: string | null;

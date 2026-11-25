@@ -138,6 +138,7 @@ export const mockAiBots: AiBot[] = [
     name: "Asistente Portabilidad", product_line: "Planes móviles prepago",
     provider: "integrated",
     system_prompt: "Eres un asesor comercial de MovisVendemos especializado en portabilidad Movistar. Responde en español, pregunta por el operador actual y ofrece el plan de 50GB a $38.000.",
+    model_name: null, fallback_models: [], priority: 10, bot_role: "custom", trigger_keywords: [],
     is_active: true, created_at: "2026-06-01T10:00:00-05:00",
   },
   {
@@ -145,6 +146,7 @@ export const mockAiBots: AiBot[] = [
     name: "Calificador de leads 06112026v4", product_line: "Campaña Meta 50GB",
     provider: "integrated",
     system_prompt: "Califica leads del lote 06112026v4: confirma interés real, documentos disponibles y horario de llamada.",
+    model_name: null, fallback_models: [], priority: 10, bot_role: "custom", trigger_keywords: [],
     is_active: true, created_at: "2026-11-06T09:00:00-05:00",
   },
   {
@@ -152,6 +154,7 @@ export const mockAiBots: AiBot[] = [
     name: "Bot de ejemplo: Placita Express", product_line: "Ventas B2B",
     provider: "integrated",
     system_prompt: "Asistente de ventas B2B para cuentas empresariales de telecomunicaciones.",
+    model_name: null, fallback_models: [], priority: 10, bot_role: "custom", trigger_keywords: [],
     is_active: true, created_at: "2026-09-15T10:00:00-05:00",
   },
 ];

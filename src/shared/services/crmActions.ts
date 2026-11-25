@@ -1002,7 +1002,7 @@ export function deleteMember(state: CrmState, memberId: string): CrmState {
  * BOTS IA
  * ========================================================================== */
 
-export function createAiBot(state: CrmState, tenantId: string, input: { name: string; product_line: string; provider: AiBotProvider; system_prompt: string }): CrmState {
+export function createAiBot(state: CrmState, tenantId: string, input: { name: string; product_line: string; provider: AiBotProvider; system_prompt: string; model_name?: string | null; fallback_models?: string[]; priority?: number; bot_role?: "greeter" | "pricing" | "faq" | "custom"; trigger_keywords?: string[] }): CrmState {
   const next = cloneState(state);
   next.data.aiBots.unshift({
     id: newId("bot"),
@@ -1011,6 +1011,11 @@ export function createAiBot(state: CrmState, tenantId: string, input: { name: st
     product_line: input.product_line.trim(),
     provider: input.provider,
     system_prompt: input.system_prompt,
+    model_name: input.model_name?.trim() || null,
+    fallback_models: input.fallback_models ?? [],
+    priority: input.priority ?? 10,
+    bot_role: input.bot_role ?? "custom",
+    trigger_keywords: input.trigger_keywords ?? [],
     is_active: true,
     created_at: nowIso(),
   });
@@ -1033,7 +1038,7 @@ export function deleteAiBot(state: CrmState, botId: string): CrmState {
 }
 
 // Edición de bots: ajusta nombre, línea de negocio e instrucciones sin recrear el bot.
-export type UpdateAiBotPatch = Partial<Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt" | "is_active">>;
+export type UpdateAiBotPatch = Partial<Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt" | "is_active" | "model_name" | "fallback_models" | "priority" | "bot_role" | "trigger_keywords">>;
 
 export function updateAiBot(state: CrmState, botId: string, patch: UpdateAiBotPatch): CrmState {
   const next = cloneState(state);

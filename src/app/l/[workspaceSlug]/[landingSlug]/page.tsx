@@ -6,8 +6,8 @@ import type { CSSProperties } from "react";
 import { PublicBrand } from "@/features/lead-capture/components/PublicBrand";
 import { PublicLeadForm } from "@/features/lead-capture/components/PublicLeadForm";
 import { resolveTenantBranding } from "@/shared/lib/branding";
-import { contrastRatio, isLandingSlug, readableTextOn, safeHexColor } from "@/shared/lib/leadCapture";
-import { getPublicTenantLanding } from "@/shared/services/leadCaptureService";
+import { contrastRatio, isLandingSlug, readableTextOn, safeHexColor, type CaptureField } from "@/shared/lib/leadCapture";
+import { getPublicTenantLanding, getTenantFormById } from "@/shared/services/leadCaptureService";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Formulario de contacto", robots: { index: true, follow: true } };
@@ -30,9 +30,29 @@ export default async function TenantLandingPage({ params }: PageProps) {
     background = "#F6F7FB";
     text = "#18181B";
   }
-  const style = { color: text, backgroundColor: background, minHeight: "100dvh" } as CSSProperties;
+  const style = { color: text, backgroundColor: background, minHeight: "100dvh", fontFamily: landing.font_family ? `${landing.font_family}, system-ui, sans-serif` : undefined } as CSSProperties;
+
+  // Fase 2 — si la landing tiene un formulario del constructor vinculado, se
+  // renderiza con sus campos, layout, pasos, bloques HTML y tema.
+  const tenantForm = landing.form_id ? await getTenantFormById(workspace.id, landing.form_id) : null;
+  const formFields: CaptureField[] = tenantForm
+    ? tenantForm.fields
+        .map((key) => fields.find((field) => field.field_key === key))
+        .filter((field): field is CaptureField => Boolean(field))
+    : fields;
   const form = (
-    <PublicLeadForm tenantId={workspace.id} token={workspace.public_webhook_token} fields={fields} ctaText={landing.cta_text} primary={primary} />
+    <PublicLeadForm
+      tenantId={workspace.id}
+      token={workspace.public_webhook_token}
+      fields={formFields}
+      ctaText={landing.cta_text}
+      primary={primary}
+      columns={tenantForm?.columns ?? 2}
+      multistep={tenantForm?.is_multistep ?? false}
+      htmlBlocks={tenantForm?.html_blocks}
+      inputBg={tenantForm?.theme_config.input_bg}
+      buttonColor={tenantForm?.theme_config.button_color}
+    />
   );
   const formCard = <div className="rounded-3xl border border-black/10 bg-white p-5 text-[#18181B] shadow-2xl shadow-black/10 sm:p-7">{form}</div>;
 

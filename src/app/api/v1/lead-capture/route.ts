@@ -22,6 +22,9 @@ const landingSchema = z.object({
   custom_primary_color: color,
   custom_bg_color: color,
   custom_text_color: color,
+  form_id: z.string().uuid().nullable().optional(),
+  font_family: z.enum(["Inter", "Plus Jakarta Sans", "DM Sans", "Roboto", "Poppins"]).nullable().optional(),
+  sections_config: z.record(z.string(), z.unknown()).default({}),
   is_active: z.boolean(),
 });
 

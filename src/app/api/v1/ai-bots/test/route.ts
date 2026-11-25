@@ -29,14 +29,16 @@ export async function POST(request: Request) {
     await requireTenantAdminOrPlatformSuperadmin(tenantId);
 
     const { data: bot, error: botError } = await createAdminClient().from("ai_bots")
-      .select("provider,system_prompt").eq("id", botId).eq("tenant_id", tenantId).maybeSingle();
+      .select("provider,system_prompt,model_name,fallback_models").eq("id", botId).eq("tenant_id", tenantId).maybeSingle();
     if (botError) throw botError;
     if (!bot) return NextResponse.json({ error: "No se encontró el bot en este espacio de trabajo." }, { status: 404 });
 
     const parsedProvider = providerSchema.safeParse(bot.provider);
     if (!parsedProvider.success) return NextResponse.json({ error: "Este bot usa un proveedor de plataforma que no admite pruebas directas." }, { status: 400 });
 
-    const reply = await generateBotAnswerForTest(parsedProvider.data, tenantId, bot.system_prompt, testMessage);
+    const reply = await generateBotAnswerForTest(parsedProvider.data, tenantId, bot.system_prompt, testMessage, {
+      botId, model: bot.model_name, fallbackModels: bot.fallback_models,
+    });
     return NextResponse.json({ reply }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     const status = authErrorStatus(error);

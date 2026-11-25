@@ -7,7 +7,7 @@ import { Badge } from "@/shared/components/ui/Badge";
 import { Button } from "@/shared/components/ui/Button";
 import { Card } from "@/shared/components/ui/Card";
 import { Input } from "@/shared/components/ui/Input";
-import type { TenantLanding } from "@/shared/lib/leadCapture";
+import { FORM_FONT_FAMILIES, type TenantForm, type TenantLanding } from "@/shared/lib/leadCapture";
 import { useCrm } from "@/shared/services/crmStore";
 
 import { CaptureCopyButton } from "./CaptureCopyButton";
@@ -30,6 +30,15 @@ export function LandingManager({ tenantId, workspaceSlug, appOrigin, landings, o
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const [previewVersion, setPreviewVersion] = useState(0);
+  const [forms, setForms] = useState<TenantForm[]>([]);
+  useEffect(() => {
+    if (!tenantId) return;
+    void fetch(`/api/v1/forms?tenantId=${tenantId}`).then(async (response) => {
+      if (!response.ok) return;
+      const result = await response.json() as { forms: TenantForm[] };
+      setForms(result.forms);
+    }).catch(() => setForms([]));
+  }, [tenantId]);
   useEffect(() => { setDraft(selected); setMessage(""); }, [selected]);
   if (!draft) return <Card className="p-6 text-sm text-adlive-text-muted">No se encontraron las tres landings predeterminadas.</Card>;
 
@@ -50,6 +59,7 @@ export function LandingManager({ tenantId, workspaceSlug, appOrigin, landings, o
           tenantId, landingId: draft.id, name: draft.name, title: draft.title, subtitle: draft.subtitle,
           cta_text: draft.cta_text, color_mode: draft.color_mode, custom_primary_color: draft.custom_primary_color,
           custom_bg_color: draft.custom_bg_color, custom_text_color: draft.custom_text_color, is_active: draft.is_active,
+          form_id: draft.form_id ?? null, font_family: draft.font_family ?? null, sections_config: draft.sections_config ?? {},
         }),
       });
       const result = await response.json() as { landing?: TenantLanding; error?: string };
@@ -83,6 +93,18 @@ export function LandingManager({ tenantId, workspaceSlug, appOrigin, landings, o
           <Input label="Título" value={draft.title} onChange={(event) => patch("title", event.target.value)} maxLength={200} />
           <label className="block text-sm font-medium text-adlive-text-main">Subtítulo<textarea value={draft.subtitle ?? ""} onChange={(event) => patch("subtitle", event.target.value)} maxLength={2000} rows={3} className="mt-1.5 w-full resize-y rounded-xl border border-adlive-border bg-white px-4 py-3 text-sm outline-none focus:border-adlive-primary focus:ring-2 focus:ring-adlive-primary/20" /></label>
           <Input label="Texto del botón (CTA)" value={draft.cta_text} onChange={(event) => patch("cta_text", event.target.value)} maxLength={80} />
+          <label className="block text-sm font-medium text-adlive-text-main">Formulario
+            <select value={draft.form_id ?? ""} onChange={(event) => patch("form_id", event.target.value || null)} className="mt-1.5 h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm outline-none focus:border-adlive-primary focus:ring-2 focus:ring-adlive-primary/20">
+              <option value="">Formulario por defecto (todos los campos)</option>
+              {forms.map((form) => <option key={form.id} value={form.id}>{form.name}</option>)}
+            </select>
+            <span className="mt-1 block text-xs font-normal text-adlive-text-muted">{forms.length === 0 ? "Crea formularios en Ajustes → Constructor de formularios." : "Se mostrará con el layout, pasos y tema del formulario elegido."}</span>
+          </label>
+          <label className="block text-sm font-medium text-adlive-text-main">Tipografía de la landing
+            <select value={draft.font_family ?? "Inter"} onChange={(event) => patch("font_family", event.target.value)} className="mt-1.5 h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm outline-none focus:border-adlive-primary focus:ring-2 focus:ring-adlive-primary/20">
+              {FORM_FONT_FAMILIES.map((font) => <option key={font} value={font}>{font}</option>)}
+            </select>
+          </label>
           <label className="block text-sm font-medium text-adlive-text-main">Colores<select value={draft.color_mode} onChange={(event) => patch("color_mode", event.target.value as TenantLanding["color_mode"])} className="mt-1.5 h-11 w-full rounded-xl border border-adlive-border bg-white px-4 text-sm outline-none focus:border-adlive-primary focus:ring-2 focus:ring-adlive-primary/20"><option value="workspace">Heredar del workspace</option><option value="custom">Personalizados para esta landing</option></select></label>
           {draft.color_mode === "custom" ? <div className="grid grid-cols-3 gap-3">{([
             ["custom_primary_color", "Principal", brandPrimary], ["custom_bg_color", "Fondo", brandBackground], ["custom_text_color", "Texto", brandText],

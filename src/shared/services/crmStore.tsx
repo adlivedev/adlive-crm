@@ -153,8 +153,8 @@ export type CreateTemplateInput = Pick<WhatsAppTemplate, "name" | "category" | "
 };
 export type CreateWorkflowInput = Pick<Workflow, "name" | "trigger_type"> & { description?: string | null };
 export type UpdateWorkflowInput = Partial<Pick<Workflow, "name" | "description" | "allow_reenrollment">>;
-export type CreateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt">;
-export type UpdateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt">;
+export type CreateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt" | "model_name" | "fallback_models" | "priority" | "bot_role" | "trigger_keywords">;
+export type UpdateAiBotInput = Pick<AiBot, "name" | "product_line" | "provider" | "system_prompt" | "model_name" | "fallback_models" | "priority" | "bot_role" | "trigger_keywords">;
 export type CreateCustomFieldInput = Pick<CustomFieldDefinition, "field_key" | "field_label" | "field_type"> & { options?: string[] };
 export type SimulatedReply = "Si" | "No" | "Otra respuesta" | "Undelivered" | "Time Out";
 export type AddWorkflowActionNodeInput = { label: string; config: Record<string, string>; edgeLabel?: string | null };
@@ -259,6 +259,7 @@ interface CrmContextValue {
   toggleAiBot: (botId: string) => void;
   deleteAiBot: (botId: string) => void;
   updateAiBot: (botId: string, input: UpdateAiBotInput) => void;
+  updateTenantBotDefault: (patch: { default_new_contact_mode?: "bot" | "human"; default_bot_id?: string | null }) => void;
   setIntegrationConnected: (provider: IntegrationProvider, connected: boolean, credentials?: Record<string, string>) => Promise<void>;
   addCustomField: (input: CreateCustomFieldInput) => void;
   updateCustomField: (fieldId: string, input: Omit<CreateCustomFieldInput, "field_key">) => void;
@@ -362,7 +363,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setIsHydrated(true);
       return message;
     }
-    let tenantQuery = supabase.from("tenants").select("id,name,slug,branding,status,created_at,updated_at");
+    let tenantQuery = supabase.from("tenants").select("id,name,slug,branding,status,default_new_contact_mode,default_bot_id,created_at,updated_at");
     if (!superadmin) tenantQuery = tenantQuery.in("id", nextMemberships.map((member) => member.tenant_id));
     const tenantResult = await tenantQuery;
     if (tenantResult.error) {
@@ -1031,7 +1032,14 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       if (error) throw new Error(error.message);
     }),
     createAiBot: (input) => runMutation(async () => {
-      const { error } = await createClient().from("ai_bots").insert({ ...input, tenant_id: requireTenant(), name: input.name.trim(), product_line: input.product_line.trim() });
+      const { error } = await createClient().from("ai_bots").insert({
+        ...input, tenant_id: requireTenant(), name: input.name.trim(), product_line: input.product_line.trim(),
+        model_name: input.model_name?.trim() || null,
+        fallback_models: input.fallback_models ?? [],
+        priority: input.priority ?? 10,
+        bot_role: input.bot_role ?? "custom",
+        trigger_keywords: input.trigger_keywords ?? [],
+      });
       if (error) throw new Error(error.message);
     }),
     toggleAiBot: (botId) => runMutation(async () => {
@@ -1051,7 +1059,17 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         product_line: input.product_line.trim(),
         provider: input.provider,
         system_prompt: input.system_prompt,
+        model_name: input.model_name?.trim() || null,
+        fallback_models: input.fallback_models ?? [],
+        priority: input.priority ?? 10,
+        bot_role: input.bot_role ?? "custom",
+        trigger_keywords: input.trigger_keywords ?? [],
       }).eq("id", botId).eq("tenant_id", requireTenant());
+      if (error) throw new Error(error.message);
+    }),
+    // Fase 2 — modo Bot por defecto para contactos nuevos del workspace.
+    updateTenantBotDefault: (patch: { default_new_contact_mode?: "bot" | "human"; default_bot_id?: string | null }) => runMutation(async () => {
+      const { error } = await createClient().from("tenants").update(patch).eq("id", requireTenant());
       if (error) throw new Error(error.message);
     }),
     setIntegrationConnected,

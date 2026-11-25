@@ -25,6 +25,15 @@ export function AiProviderKeyModal({ spec, open, onClose, onKeySaved }: AiProvid
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Fase 2 — aviso de formato: ej. las API keys de Gemini empiezan por AIza…;
+  // una clave AQ.A… es un token de aplicación y el proveedor la rechazará.
+  const expectedPrefix = spec && spec.provider !== "integrated"
+    ? ({ gemini: "AIza", openai: "sk-", anthropic: "sk-ant-", grok: "xai-" } as const)[spec.provider]
+    : null;
+  const formatWarning = expectedPrefix && keyInput.trim().length >= 8 && !keyInput.trim().startsWith(expectedPrefix)
+    ? `Aviso: las claves de ${spec?.name} suelen empezar por «${expectedPrefix}». La tuya empieza por «${keyInput.trim().slice(0, 4)}…». Puedes guardarla, pero si el proveedor la rechaza genera una nueva en su consola.`
+    : null;
+
   const handleSave = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!activeTenant || !spec) return;
@@ -43,6 +52,7 @@ export function AiProviderKeyModal({ spec, open, onClose, onKeySaved }: AiProvid
     <Modal open={open} onClose={onClose} title={spec ? `API Key de ${spec.name}` : "API Key"} subtitle="Se cifra en el servidor y nunca se devuelve al navegador.">
       <form onSubmit={(event) => void handleSave(event)} className="flex flex-col gap-4">
         <Input label="API Key" value={keyInput} onChange={(event) => setKeyInput(event.target.value)} placeholder={spec?.keyPlaceholder} type="password" autoComplete="off" required minLength={8} />
+        {formatWarning ? <p role="alert" className="rounded-xl bg-amber-50 px-4 py-2.5 text-sm text-amber-800">{formatWarning}</p> : null}
         {error ? <p role="alert" className="rounded-xl bg-red-50 px-4 py-2.5 text-sm text-adlive-danger">{error}</p> : null}
         <div className="flex justify-end gap-3"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" isLoading={isSaving} disabled={keyInput.trim().length < 8}>Guardar en servidor</Button></div>
       </form>

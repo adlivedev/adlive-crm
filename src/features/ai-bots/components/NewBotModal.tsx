@@ -20,11 +20,23 @@ import type { AiBot, AiBotProvider } from "@/shared/types/database";
 import {
   AI_PROVIDER_SPECS,
   BOT_OBJECTIVE_PRESETS,
+  BOT_ROLE_OPTIONS,
   BOT_TONE_OPTIONS,
+  PROVIDER_MODELS,
   compileBotPrompt,
 } from "./botsData";
 
-export interface BotFormInput { name: string; product_line: string; provider: AiBotProvider; system_prompt: string }
+export interface BotFormInput {
+  name: string;
+  product_line: string;
+  provider: AiBotProvider;
+  system_prompt: string;
+  model_name: string | null;
+  fallback_models: string[];
+  priority: number;
+  bot_role: "greeter" | "pricing" | "faq" | "custom";
+  trigger_keywords: string[];
+}
 
 export interface NewBotModalProps {
   open: boolean;
@@ -53,6 +65,11 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
   const [toneId, setToneId] = useState(BOT_TONE_OPTIONS[0]!.id);
   const [freePrompt, setFreePrompt] = useState("");
   const [connectedProviders, setConnectedProviders] = useState<Set<string> | null>(null);
+  const [modelName, setModelName] = useState("");
+  const [fallbackModels, setFallbackModels] = useState<string[]>([]);
+  const [botRole, setBotRole] = useState<"greeter" | "pricing" | "faq" | "custom">("custom");
+  const [priority, setPriority] = useState(10);
+  const [keywordsInput, setKeywordsInput] = useState("");
 
   // Al abrir: inicializa desde el bot (edición) o limpia (creación).
   useEffect(() => {
@@ -68,6 +85,11 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
     setToneId(BOT_TONE_OPTIONS[0]!.id);
     setFreePrompt(bot?.system_prompt ?? "");
     setConnectedProviders(null);
+    setModelName(bot?.model_name ?? "");
+    setFallbackModels(bot?.fallback_models ?? []);
+    setBotRole(bot?.bot_role ?? "custom");
+    setPriority(bot?.priority ?? 10);
+    setKeywordsInput((bot?.trigger_keywords ?? []).join(", "));
   }, [open, bot]);
 
   // QA-005: consulta los proveedores realmente conectados del workspace.
@@ -100,9 +122,21 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!isValid) return;
-    onSave(bot?.id ?? null, { name: name.trim(), product_line: productLine.trim(), provider, system_prompt: systemPrompt.trim() });
+    onSave(bot?.id ?? null, {
+      name: name.trim(),
+      product_line: productLine.trim(),
+      provider,
+      system_prompt: systemPrompt.trim(),
+      model_name: modelName.trim() || null,
+      fallback_models: fallbackModels.filter((model) => model !== modelName),
+      priority,
+      bot_role: botRole,
+      trigger_keywords: keywordsInput.split(",").map((keyword) => keyword.trim().toLowerCase()).filter(Boolean).slice(0, 20),
+    });
     handleClose();
   };
+
+  const availableModels = provider !== "integrated" ? PROVIDER_MODELS[provider] : [];
 
   return (
     <Modal open={open} onClose={handleClose} title={isEditing ? "Editar bot" : "Nuevo bot"} subtitle={isEditing ? "Ajusta el entrenamiento del bot sin recrearlo." : "Entrena al bot en 3 decisiones: para qué sirve, qué sabe y cuándo ceder el chat a un asesor."}>
@@ -150,6 +184,72 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
               </Button>
             </div>
           ) : null}
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="bot-model" className="text-sm font-medium text-adlive-text-main">Modelo principal</label>
+            <select id="bot-model" value={modelName} onChange={(event) => setModelName(event.target.value)} className={SELECT_CLASS}>
+              <option value="">Automático (recomendado)</option>
+              {availableModels.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+            <p className="text-xs text-adlive-text-muted">Si lo dejas en automático, el CRM elige el mejor modelo disponible para tu proveedor.</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="bot-priority" className="text-sm font-medium text-adlive-text-main">Prioridad (orquestador)</label>
+            <select id="bot-priority" value={priority} onChange={(event) => setPriority(Number(event.target.value))} className={SELECT_CLASS}>
+              {[1, 2, 3, 4, 5, 10].map((value) => (
+                <option key={value} value={value}>{value === 10 ? "10 (último)" : `${value}${value === 1 ? " (atiende primero)" : ""}`}</option>
+              ))}
+            </select>
+            <p className="text-xs text-adlive-text-muted">El bot con menor número atiende el primer mensaje; los demás solo responden si coinciden sus palabras clave o rol.</p>
+          </div>
+        </div>
+
+        {modelName && availableModels.filter((model) => model !== modelName).length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="text-sm font-medium text-adlive-text-main">Modelos de respaldo (fallback automático)</span>
+            <div className="flex flex-wrap gap-2">
+              {availableModels.filter((model) => model !== modelName).map((model) => {
+                const checked = fallbackModels.includes(model);
+                return (
+                  <label key={model} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${checked ? "border-adlive-primary bg-adlive-primary-light text-adlive-primary" : "border-adlive-border bg-white text-adlive-text-muted"}`}>
+                    <input
+                      type="checkbox"
+                      className="sr-only"
+                      checked={checked}
+                      onChange={(event) => setFallbackModels((current) => event.target.checked ? [...current, model] : current.filter((item) => item !== model))}
+                    />
+                    {model}
+                  </label>
+                );
+              })}
+            </div>
+            <p className="text-xs text-adlive-text-muted">Si el modelo principal falla por saturación o cuota (429/503), el bot cambia automáticamente al siguiente de esta lista.</p>
+          </div>
+        ) : null}
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="bot-role" className="text-sm font-medium text-adlive-text-main">Rol del bot</label>
+            <select id="bot-role" value={botRole} onChange={(event) => setBotRole(event.target.value as "greeter" | "pricing" | "faq" | "custom")} className={SELECT_CLASS}>
+              {BOT_ROLE_OPTIONS.map((role) => (
+                <option key={role.id} value={role.id}>{role.label}</option>
+              ))}
+            </select>
+            <p className="text-xs text-adlive-text-muted">{BOT_ROLE_OPTIONS.find((role) => role.id === botRole)?.hint}</p>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Input
+              label="Palabras clave de activación"
+              value={keywordsInput}
+              onChange={(event) => setKeywordsInput(event.target.value)}
+              placeholder="precio, plan, contratar"
+              hint="Sepáralas por comas. Si el cliente las escribe, este bot toma el chat aunque no sea el de mayor prioridad."
+            />
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5">

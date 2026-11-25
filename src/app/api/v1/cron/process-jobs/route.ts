@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { nextRetryRunAfter } from "@/shared/lib/backgroundJobs";
+import { emailSlaAlert, sendDailySummary } from "@/shared/services/conversationAlertService";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -46,7 +48,7 @@ export async function GET(request: Request) {
         attempts,
         last_error: message.slice(0, 500),
         locked_at: null,
-        ...(exhausted ? {} : { run_after: new Date(Date.now() + Math.min(attempts, 5) * 60_000).toISOString() }),
+        ...(exhausted ? {} : { run_after: nextRetryRunAfter(attempts) }),
       }).eq("id", job.id);
       failed += 1;
     }
@@ -58,14 +60,18 @@ type JobRow = { id: string; tenant_id: string; job_type: string; payload: Record
 
 async function processJob(admin: ReturnType<typeof createAdminClient>, job: JobRow): Promise<void> {
   switch (job.job_type) {
-    /* Alerta de conversaciones sin respuesta humana > 1 h (payload: { hours?: number }). */
+    /* Alerta de conversaciones sin respuesta humana > 1 h. Si el payload trae
+       conversation_id, solo evalúa esa conversación; si no, escanea el tenant. */
     case "conversation_sla_alert": {
       const hours = Number(job.payload.hours ?? 1);
       const cutoff = new Date(Date.now() - hours * 3_600_000).toISOString();
-      const { data: stale } = await admin.from("conversations")
+      let query = admin.from("conversations")
         .select("id, contact_id, assigned_member_id").eq("tenant_id", job.tenant_id)
         .eq("handler_mode", "human").eq("needs_reply", true).lte("last_inbound_at", cutoff);
+      if (typeof job.payload.conversation_id === "string") query = query.eq("id", job.payload.conversation_id);
+      const { data: stale } = await query;
       for (const conversation of stale ?? []) {
+        const { data: contact } = await admin.from("contacts").select("full_name").eq("id", conversation.contact_id).eq("tenant_id", job.tenant_id).maybeSingle();
         await admin.from("notifications").insert({
           tenant_id: job.tenant_id,
           recipient_member_id: conversation.assigned_member_id,
@@ -76,7 +82,26 @@ async function processJob(admin: ReturnType<typeof createAdminClient>, job: JobR
           action_url: `/conversaciones?open=${conversation.id}`,
           metadata: { conversation_id: conversation.id, contact_id: conversation.contact_id },
         });
+        await emailSlaAlert({
+          tenantId: job.tenant_id,
+          memberId: conversation.assigned_member_id,
+          conversationId: conversation.id,
+          hours,
+          contactName: contact?.full_name ?? "un contacto",
+        });
       }
+      return;
+    }
+    /* Resumen diario de contactos creados con origen por formulario/UTM.
+       Al completarse, programa el siguiente para mañana a las 9:00. */
+    case "daily_summary": {
+      await sendDailySummary(job.tenant_id);
+      const next = new Date();
+      next.setHours(9, 0, 0, 0);
+      next.setDate(next.getDate() + 1);
+      await admin.from("background_jobs").insert({
+        tenant_id: job.tenant_id, job_type: "daily_summary", payload: {}, run_after: next.toISOString(),
+      });
       return;
     }
     /* Reactivar workflows con nodos en espera cuyo wait_expires_at ya venció. */

@@ -151,7 +151,7 @@ describe("Sprint 2 — POST /api/v1/ai-bots/test (Probar Bot en Vivo)", () => {
     expect(response.status).toBe(200);
     expect(body.reply).toContain("$79.900");
     expect(mocks.requireGuard).toHaveBeenCalledWith(tenantId);
-    expect(mocks.generateAnswer).toHaveBeenCalledWith("gemini", tenantId, "Eres el asistente.", "¿Precio del plan?");
+    expect(mocks.generateAnswer).toHaveBeenCalledWith("gemini", tenantId, "Eres el asistente.", "¿Precio del plan?", { botId, model: undefined, fallbackModels: undefined });
   });
 
   it("rechaza con 403 a un agente sin permisos de admin", async () => {
