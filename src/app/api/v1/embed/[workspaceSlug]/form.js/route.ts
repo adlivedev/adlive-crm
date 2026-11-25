@@ -9,7 +9,7 @@ const slugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(150);
 
 function embedScript(workspaceSlug: string, origin: string): string {
   return `(function () {
-  var PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "fbclid"];
+  var PARAMS = ["utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "fbclid", "gclid", "ttclid"];
   var KEY = "adlive_embed_attribution";
   var MAX_AGE = 90 * 24 * 60 * 60;
   function stored() {
@@ -18,6 +18,16 @@ function embedScript(workspaceSlug: string, origin: string): string {
       if (!value || Date.now() - value.captured_at > MAX_AGE * 1000) return { captured_at: Date.now(), values: {} };
       return value;
     } catch (error) { return { captured_at: Date.now(), values: {} }; }
+  }
+  /** Origen automático: referrer + userAgent de la página padre (Meta/IG/TikTok/Google). */
+  function detectSource() {
+    var referrer = (document.referrer || "").toLowerCase();
+    var agent = (navigator.userAgent || "").toLowerCase();
+    if (referrer.indexOf("instagram.com") !== -1 || agent.indexOf("instagram") !== -1) return { source: "instagram", label: "Instagram" };
+    if (referrer.indexOf("facebook.com") !== -1 || referrer.indexOf("fb.") !== -1 || agent.indexOf("fban") !== -1 || agent.indexOf("fbav") !== -1) return { source: "facebook", label: "Facebook" };
+    if (referrer.indexOf("tiktok.com") !== -1 || agent.indexOf("tiktok") !== -1) return { source: "tiktok", label: "TikTok" };
+    if (referrer.indexOf("google.") !== -1 || agent.indexOf("gsa") !== -1) return { source: "google", label: "Google" };
+    return { source: "directo", label: "Directo / Orgánico" };
   }
   function attribution() {
     var data = stored();
@@ -33,6 +43,12 @@ function embedScript(workspaceSlug: string, origin: string): string {
         document.cookie = "adlive_" + name + "=" + encodeURIComponent(value.slice(0, 2048)) + "; Max-Age=" + MAX_AGE + "; Path=/; SameSite=Lax";
       }
     });
+    /* Nunca perder el origen: si no hay utm_source explícito, se infiere. */
+    if (!data.values.utm_source) {
+      var detected = detectSource();
+      data.values.utm_source = detected.source;
+      data.values.lead_source = detected.label;
+    }
     try { window.localStorage.setItem(KEY, JSON.stringify(data)); } catch (error) {}
     return data.values;
   }
@@ -55,10 +71,19 @@ function embedScript(workspaceSlug: string, origin: string): string {
       iframe.title = "Formulario de contacto";
       iframe.loading = "lazy";
       iframe.style.width = "100%";
-      iframe.style.minHeight = container.getAttribute("data-height") || "720px";
+      iframe.style.minHeight = container.getAttribute("data-height") || "480px";
       iframe.style.border = "0";
       iframe.style.display = "block";
-      iframe.setAttribute("scrolling", "auto");
+      iframe.setAttribute("scrolling", "no");
+      iframe.setAttribute("allowtransparency", "true");
+      /* Auto-height: el formulario pide su altura exacta por postMessage. */
+      window.addEventListener("message", function (event) {
+        var message = event && event.data;
+        if (!message || message.type !== "crm-embed-resize") return;
+        if (iframe.contentWindow && event.source !== iframe.contentWindow) return;
+        var height = parseInt(message.height, 10);
+        if (height > 0) iframe.style.height = height + "px";
+      }, false);
       container.appendChild(iframe);
     });
   }

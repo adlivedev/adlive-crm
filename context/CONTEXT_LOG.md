@@ -37,6 +37,14 @@
 - **Verificación:** 187/187 pruebas en 26 archivos, `tsc --noEmit` limpio, ESLint sin advertencias y build exitoso.
 - **Aplazado (requiere más alcance):** disparador SLA por tiempo real (necesita programador de tareas en servidor), constructor de mensaje interactivo tipo WOM con botones y vista previa en vivo en el compositor, y subida de imagen de cabecera al hosting de Meta (la columna `default_header_media_url` ya está en el API y la BD).
 
+### [Iteración 22 - Parcial FASE 2 PRO: migración bots/forms/notifications/jobs, embed auto-height + atribución automática, cron anti-timeout y campana de notificaciones]
+- **Migración `20261125000400_ai_models_forms_notifications_jobs` (aplicada a producción):** en `ai_bots`: `model_name`, `fallback_models text[]`, `priority`, `bot_role`, `trigger_keywords`; en `tenants`: `default_new_contact_mode`, `default_bot_id`; tablas nuevas `ai_usage_logs`, `tenant_forms`, `notifications` (en Realtime) y `background_jobs` (índice parcial pending), con RLS por tenant usando funciones `private.*` existentes.
+- **Embed + atribución automática (entregable 4 parcial):** `/embed/.../form.js` detecta origen por referrer/userAgent (instagram/facebook/tiktok/google/directo) y setea `utm_source`+`lead_source` si no hay explícito; iframe `scrolling="no"` + evento `crm-embed-resize` para auto-height (nuevo `EmbedResizer.tsx` con ResizeObserver → postMessage); fondo exterior del embed siempre transparente. Test nuevo `tests/leadSourceDetection.test.ts` (5 casos).
+- **Anti-timeout (entregable 6 parcial):** `maxDuration = 60` en `webhooks/whatsapp`, `ai-bots/test`, `messages/[messageId]/transcribe` y `lead-capture`; nuevo `GET /api/v1/cron/process-jobs` (Bearer `CRON_SECRET`; procesa `conversation_sla_alert`, `workflow_wait_resume` y reintentos con backoff); `vercel.json` con crons cada 5 min — ⚠️ **inerte en plan Hobby** (Vercel solo ejecuta crons en Pro; requiere Pro o scheduler externo que llame al endpoint).
+- **Notificaciones (entregable 5 parcial):** `notificationService` (crear + notificar contacto creado a owner/admin y lead asignado al agente), enganchado en `ingestTenantWebLead`; campana con contador, popover, Realtime por tenant y sonido con mute (`NotificationBell.tsx` en Topbar).
+- **Verificación:** 187/187 pruebas en 26 archivos, `tsc --noEmit` limpio, ESLint sin advertencias y build exitoso.
+- **Aplazado de Fase 2 (declarado al cliente):** guías paso a paso en `/integraciones` (entregable 2); bots IA avanzados —probar conexión por proveedor, selector de modelo/fallback en UI, `ai_usage_logs`, panel de consumo y orquestador multi-bot— (entregable 3); constructor de formularios tipo HubSpot y landings con `form_id` (resto entregable 4); correos SMTP y alertas de chat >1h (resto entregable 5); `after()` de Next en webhooks (resto entregable 6); tests de fallback/notificaciones/background_jobs.
+
 ---
 
 ## Historial de Iteraciones

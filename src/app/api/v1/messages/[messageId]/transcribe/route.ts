@@ -5,6 +5,7 @@ import { authErrorStatus, requireUser } from "@/shared/lib/serverAuth";
 import { transcribeAudioMessage } from "@/shared/services/audioTranscriptionService";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 /** Transcripción + resumen manual de un audio (botón «Describir audio»). */
 export async function POST(_request: Request, { params }: { params: Promise<{ messageId: string }> }) {

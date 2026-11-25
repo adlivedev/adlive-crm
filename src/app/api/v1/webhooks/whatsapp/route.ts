@@ -8,6 +8,7 @@ import { handleWhatsAppPost, verifyWhatsAppChallenge, WHATSAPP_MAX_BODY_BYTES } 
 import { parseWebhookJson, readWebhookBody, webhookError, WebhookHttpError } from "@/shared/services/webhookHttp";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 function routingHints(json: unknown): { phoneNumberIds: string[]; wabaIds: string[] } {

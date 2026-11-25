@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useCrm } from "@/shared/services/crmStore";
 
 import { AccountSwitcher } from "./AccountSwitcher";
+import { NotificationBell } from "./NotificationBell";
 
 interface ViewMeta {
   title: string;
@@ -70,6 +71,7 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
       </div>
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+        <NotificationBell />
         {isPlatformSuperadmin ? <div className="hidden w-52 md:block xl:w-64"><AccountSwitcher placement="topbar" /></div> : null}
         <span className="hidden max-w-56 truncate text-sm text-adlive-text-muted lg:block" title={session?.email}>
           {session?.email}

@@ -7,6 +7,7 @@ import { LANDING_SLUGS } from "@/shared/lib/leadCapture";
 import { authErrorStatus, requireTenantAdminOrPlatformSuperadmin } from "@/shared/lib/serverAuth";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 const tenantIdSchema = z.string().uuid();
 const color = z.string().regex(/^#[0-9a-f]{6}$/i).nullable();

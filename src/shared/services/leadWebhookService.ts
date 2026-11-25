@@ -5,6 +5,7 @@ import { z } from "zod";
 import { normalizeCoPhone } from "@/shared/lib/phone";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { consolidateLeadIdentity } from "@/shared/services/contactIdentityService";
+import { notifyContactCreated, notifyLeadAssigned } from "@/shared/services/notificationService";
 import { executeWorkflowsForEvent } from "@/shared/services/workflowExecutionService";
 
 function nullableText(max: number) {
@@ -162,6 +163,7 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
     detail: `Lead captado por formulario (${payload.utm_source ?? payload.lead_source ?? "Formulario Web"}).`,
     payload: { utm: { source: payload.utm_source, medium: payload.utm_medium, campaign: payload.utm_campaign }, custom_fields: payload.custom_fields },
   }).catch(() => result.out_contact_id);
+
   try {
     await executeWorkflowsForEvent({
       tenantId,
@@ -173,6 +175,31 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
     });
   } catch (workflowError) {
     console.error("Workflow execution after lead ingestion failed", workflowError instanceof Error ? workflowError.message : "unknown error");
+  }
+
+  /* Notificaciones in-app: dueño/admins ven el contacto nuevo y el agente
+     asignado recibe aviso directo. Nunca rompen la captación del lead. */
+  try {
+    const { data: contactRow } = await createAdminClient().from("contacts")
+      .select("full_name,assigned_member_id").eq("id", workflowContactId).single();
+    if (contactRow) {
+      const source = payload.utm_source ?? payload.lead_source ?? "Formulario Web";
+      await notifyContactCreated({
+        tenantId,
+        contactId: workflowContactId,
+        contactName: contactRow.full_name,
+        source,
+        assignedMemberId: contactRow.assigned_member_id,
+      });
+      await notifyLeadAssigned({
+        tenantId,
+        contactId: workflowContactId,
+        contactName: contactRow.full_name,
+        memberId: result.out_assigned_member_id ?? contactRow.assigned_member_id,
+      });
+    }
+  } catch (notificationError) {
+    console.error("Notification after lead ingestion failed", notificationError instanceof Error ? notificationError.message : "unknown error");
   }
   return { ...result, out_contact_id: workflowContactId };
 }
