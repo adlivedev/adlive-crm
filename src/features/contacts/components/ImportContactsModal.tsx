@@ -16,13 +16,14 @@ export function ImportContactsModal({ open, onClose }: ImportContactsModalProps)
   const { importContacts, isMutating } = useCrm();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [parsedRows, setParsedRows] = useState<CreateContactInput[] | null>(null);
+  const [skippedRows, setSkippedRows] = useState<Array<{ name: string; phone: string; reason: string }>>([]);
   const [fileName, setFileName] = useState<string | null>(null);
   const [parseError, setParseError] = useState<string | null>(null);
   const [importedCount, setImportedCount] = useState<number | null>(null);
   const importTag = `importado-${new Date().toISOString().slice(0, 10)}`;
 
   const reset = () => {
-    setParsedRows(null); setFileName(null); setParseError(null); setImportedCount(null);
+    setParsedRows(null); setSkippedRows([]); setFileName(null); setParseError(null); setImportedCount(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
   const handleClose = () => { reset(); onClose(); };
@@ -32,10 +33,11 @@ export function ImportContactsModal({ open, onClose }: ImportContactsModalProps)
     reset();
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) { setParseError("El archivo supera el límite de 5 MB."); return; }
-    const rows = parseContactsCsv(await file.text());
-    if (rows.length === 0) { setParseError("No se encontraron filas válidas. Usa: nombre; teléfono; email; empresa; fuente."); return; }
+    const { rows, skipped } = parseContactsCsv(await file.text());
+    if (rows.length === 0) { setParseError(skipped.length > 0 ? `Ninguna fila es válida: ${skipped[0]!.reason}` : "No se encontraron filas válidas. Usa: nombre; teléfono; email; empresa; fuente."); return; }
     if (rows.length > 5000) { setParseError("Cada importación admite máximo 5.000 contactos."); return; }
     setParsedRows(rows);
+    setSkippedRows(skipped);
     setFileName(file.name);
   };
 
@@ -67,6 +69,12 @@ export function ImportContactsModal({ open, onClose }: ImportContactsModalProps)
         {parsedRows ? <div className="flex flex-col gap-2 rounded-xl border border-adlive-border p-4">
           <p className="flex items-center gap-2 text-sm font-semibold text-adlive-text-main"><FileSpreadsheet className="h-4 w-4 text-adlive-primary" aria-hidden />{parsedRows.length} contactos detectados</p>
           <ul className="max-h-36 overflow-y-auto text-xs text-adlive-text-muted">{parsedRows.slice(0, 50).map((row, index) => <li key={`${row.phone_e164}-${index}`} className="border-b border-adlive-border/60 py-1.5 last:border-0"><span className="font-mono">{row.phone_e164}</span> · {row.full_name}{row.email ? ` · ${row.email}` : ""}</li>)}</ul>
+          {skippedRows.length > 0 ? (
+            <div className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <p className="font-semibold">{skippedRows.length} fila(s) omitida(s) por teléfono inválido:</p>
+              <ul className="mt-1 max-h-20 overflow-y-auto">{skippedRows.slice(0, 10).map((row, index) => <li key={`skip-${index}`}>· {row.name || "Sin nombre"} (<span className="font-mono">{row.phone || "vacío"}</span>): {row.reason}</li>)}</ul>
+            </div>
+          ) : null}
           <Button variant="primary" size="sm" className="self-start" isLoading={isMutating} onClick={() => void importRows()}>Importar {parsedRows.length} contactos</Button>
         </div> : null}
         {importedCount !== null ? <p role="status" className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2.5 text-sm text-adlive-success"><Badge tone="success">{importedCount} contactos</Badge>importados con la etiqueta {importTag}.</p> : null}

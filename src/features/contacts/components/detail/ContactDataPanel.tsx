@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
 import { formatDate } from "@/shared/lib/format";
+import { normalizeCoPhone } from "@/shared/lib/phone";
 import { useCrm } from "@/shared/services/crmStore";
 import type { Contact } from "@/shared/types/database";
 
@@ -24,6 +25,12 @@ const SELECT_CLASS =
 
 export function ContactDataPanel({ contact }: { contact: Contact }) {
   const { updateContact } = useCrm();
+  /* QA-NEW-011: si la fuente real del contacto no está en las opciones
+     estándar (p. ej. instagram, meta_ads), se añade dinámicamente para que
+     nunca se muestre erróneamente como «WhatsApp». */
+  const sourceOptions = SOURCE_OPTIONS.includes(contact.lead_source)
+    ? SOURCE_OPTIONS
+    : [...SOURCE_OPTIONS, contact.lead_source];
   const [fullName, setFullName] = useState(contact.full_name);
   const [phone, setPhone] = useState(contact.phone_e164);
   const [email, setEmail] = useState(contact.email ?? "");
@@ -51,14 +58,14 @@ export function ContactDataPanel({ contact }: { contact: Contact }) {
       setError("El nombre del contacto es obligatorio.");
       return;
     }
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Ingresa un teléfono válido (mínimo 10 dígitos).");
+    const normalized = normalizeCoPhone(phone);
+    if (!normalized.ok) {
+      setError(normalized.reason);
       return;
     }
     updateContact(contact.id, {
       full_name: fullName.trim(),
-      phone_e164: digits,
+      phone_e164: normalized.e164,
       email: email.trim() || null,
       company_name: company.trim() || null,
       lead_source: source,
@@ -84,7 +91,7 @@ export function ContactDataPanel({ contact }: { contact: Contact }) {
             Fuente del lead
           </label>
           <select id="ficha-fuente-lead" value={source} onChange={(event) => setSource(event.target.value)} className={SELECT_CLASS}>
-            {SOURCE_OPTIONS.map((option) => (
+            {sourceOptions.map((option) => (
               <option key={option} value={option}>
                 {option}
               </option>

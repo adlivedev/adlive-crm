@@ -9,6 +9,7 @@
 import type { CreateContactInput } from "@/shared/services/crmStore";
 import type { Contact, Conversation, Opportunity } from "@/shared/types/database";
 import { formatDate } from "@/shared/lib/format";
+import { normalizeCoPhone } from "@/shared/lib/phone";
 
 /* ============================================================================
  * FILTROS
@@ -205,13 +206,15 @@ const IMPORT_SOURCE_KEYS = ["fuente", "source"];
  * Parsea texto CSV/Excel a inputs de creación. Espera encabezado con las
  * columnas habituales (nombre, teléfono, email, empresa, fuente); las filas
  * sin nombre ni teléfono se descartan.
+ * QA-NEW-006: los teléfonos se normalizan a E.164 estricto (+57XXXXXXXXXX);
+ * las filas con teléfono inválido se rechazan y se reportan en `skipped`.
  */
-export function parseContactsCsv(text: string): CreateContactInput[] {
+export function parseContactsCsv(text: string): { rows: CreateContactInput[]; skipped: Array<{ name: string; phone: string; reason: string }> } {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  if (lines.length === 0) return [];
+  if (lines.length === 0) return { rows: [], skipped: [] };
 
   const delimiter = lines[0]!.includes(";") ? ";" : ",";
 
@@ -246,21 +249,27 @@ export function parseContactsCsv(text: string): CreateContactInput[] {
   const idxSource = columnIndex(IMPORT_SOURCE_KEYS);
 
   const rows: CreateContactInput[] = [];
+  const skipped: Array<{ name: string; phone: string; reason: string }> = [];
   for (const line of lines.slice(1)) {
     const cells = parseLine(line);
     const name = (idxName >= 0 ? cells[idxName] : cells[0]) ?? "";
     const phone = (idxPhone >= 0 ? cells[idxPhone] : cells[1]) ?? "";
     if (!name && !phone) continue;
     if (IMPORT_NAME_KEYS.some((key) => normalizeText(name).includes(key))) continue; // encabezado repetido
+    const normalized = normalizeCoPhone(phone);
+    if (!normalized.ok) {
+      skipped.push({ name, phone, reason: normalized.reason });
+      continue;
+    }
     rows.push({
       full_name: sanitizeSpreadsheetCell(name || "Sin nombre"),
-      phone_e164: phone.replace(/\D/g, ""),
+      phone_e164: normalized.e164,
       email: idxEmail >= 0 && cells[idxEmail] ? sanitizeSpreadsheetCell(cells[idxEmail]!) : null,
       company_name: idxCompany >= 0 && cells[idxCompany] ? sanitizeSpreadsheetCell(cells[idxCompany]!) : null,
       lead_source: idxSource >= 0 && cells[idxSource] ? sanitizeSpreadsheetCell(cells[idxSource]!) : "WhatsApp",
     });
   }
-  return rows;
+  return { rows, skipped };
 }
 
 /* ============================================================================

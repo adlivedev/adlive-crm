@@ -7,7 +7,7 @@
  *   Meta y devuelve un error claro si el envío libre no está permitido.
  */
 
-import { FileText, ImagePlus, MousePointerClick, Plus, SendHorizonal, Trash2, X, Zap } from "lucide-react";
+import { FileText, ImagePlus, LayoutTemplate, MousePointerClick, Plus, SendHorizonal, Trash2, X, Zap } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import { Button } from "@/shared/components/ui/Button";
@@ -48,6 +48,8 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
   const [picker, setPicker] = useState<"template" | "quick" | "interactive" | null>(null);
   const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
+  /* QA-NEW-011: aviso contextual cuando Meta rechaza por ventana 24 h cerrada. */
+  const [windowNotice, setWindowNotice] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Constructor de mensaje interactivo (botones de respuesta o CTA con enlace).
   const [ixBody, setIxBody] = useState("");
@@ -58,6 +60,8 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
   const ixFileRef = useRef<HTMLInputElement | null>(null);
 
   const approvedTemplates = useMemo(() => templates.filter((template) => template.status === "APPROVED"), [templates]);
+
+  const isWindowError = (error: unknown) => (error as { status?: number } | null)?.status === 409;
 
   const ixValidButtons = ixButtons.filter((button) => button.title.trim().length > 0);
   const ixReady = ixBody.trim().length > 0 && ixValidButtons.length > 0
@@ -74,7 +78,10 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
       setDraft("");
       setAttachment(null);
       setPicker(null);
-    } catch { /* El store muestra el error real del servidor. */ }
+      setWindowNotice(false);
+    } catch (error) { /* El store muestra el error real del servidor. */
+      if (isWindowError(error)) setWindowNotice(true);
+    }
   };
 
   /* Adjuntar imagen: valida 2 MB y sube al bucket chat-media del tenant. */
@@ -117,7 +124,9 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
       });
       resetInteractive();
       setPicker(null);
-    } catch { /* El store muestra el error real del servidor. */ }
+    } catch (error) { /* El store muestra el error real del servidor. */
+      if (isWindowError(error)) setWindowNotice(true);
+    }
   };
 
   const handleSendTemplate = async (template: WhatsAppTemplate) => {
@@ -137,11 +146,34 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
     try {
       await sendMessage(conversation.id, { body: reply });
       setPicker(null);
-    } catch { /* El store muestra el error real del servidor. */ }
+      setWindowNotice(false);
+    } catch (error) { /* El store muestra el error real del servidor. */
+      if (isWindowError(error)) setWindowNotice(true);
+    }
   };
 
   return (
     <div className="border-t border-adlive-border px-4 py-3">
+      {/* QA-NEW-011: aviso contextual de ventana de 24 h cerrada (HTTP 409 de Meta). */}
+      {windowNotice ? (
+        <div role="alert" className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-amber-50 px-4 py-2.5">
+          <span className="text-sm text-adlive-text-main">
+            La ventana de 24 horas está cerrada: WhatsApp solo acepta <strong>plantillas aprobadas</strong> para retomar el contacto.
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => { setPicker("template"); setWindowNotice(false); }}
+            aria-label="Abrir selector de plantillas aprobadas"
+          >
+            <LayoutTemplate className="h-4 w-4" aria-hidden /> Abrir plantillas
+          </Button>
+          <button type="button" onClick={() => setWindowNotice(false)} aria-label="Cerrar aviso" className="cursor-pointer text-adlive-text-muted hover:text-adlive-text-main">
+            <X className="h-4 w-4" aria-hidden />
+          </button>
+        </div>
+      ) : null}
       {/* Selector desplegable (plantillas / respuestas rápidas) */}
       {picker === "interactive" ? (
         <div

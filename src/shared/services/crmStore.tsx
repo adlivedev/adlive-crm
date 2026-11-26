@@ -14,6 +14,8 @@ import {
 
 import { assignedMemberForView, contactMemberForView } from "@/shared/lib/auth/roleAccess";
 import { ACTIVE_TENANT_COOKIE } from "@/shared/lib/auth/workspaceAccess";
+import { normalizeCoPhone } from "@/shared/lib/phone";
+import { isPublicRoutePath } from "@/shared/lib/publicRoute";
 import { createClient, isSupabaseBrowserConfigured } from "@/shared/lib/supabase/client";
 import { establishSessionFromUrl } from "@/shared/lib/supabase/urlSession";
 import {
@@ -312,6 +314,10 @@ export function CrmProvider({ children }: { children: ReactNode }) {
   const [viewingAsMemberId, setViewingAsMemberIdState] = useState<string | null>(null);
   const workspaceRequest = useRef(0);
   const contactRequest = useRef(0);
+  /* QA-NEW-010: marca de agua del mensaje más reciente conocido; el polling
+     ligero solo trae mensajes nuevos (created_at > watermark) en lugar de
+     re-descargar los 2.000 últimos de todo el workspace cada 15 s. */
+  const messagesWatermarkRef = useRef<string | null>(null);
 
   const activeTenantId = session?.tenantId ?? null;
   const activeTenant = useMemo(() => tenants.find((tenant) => tenant.id === activeTenantId) ?? null, [tenants, activeTenantId]);
@@ -411,9 +417,15 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       setIsHydrated(true);
       return;
     }
+    /* QA-NEW-010: en rutas públicas (/embed/, /l/, login, recuperación) no hay
+       sesión que restaurar: se omite el getUser() inicial (evita 401/403 en
+       Network y logs de Postgres). El listener onAuthStateChange se conserva:
+       no hace peticiones hasta que ocurre un evento de auth (p. ej. el login
+       en /login) y entonces sí carga las membresías. */
+    const publicShell = typeof window !== "undefined" && isPublicRoutePath(window.location.pathname);
     const supabase = createClient();
     let mounted = true;
-    void (async () => {
+    if (!publicShell) void (async () => {
       await establishSessionFromUrl(supabase);
       if (!mounted) return;
       const { data: authData, error } = await supabase.auth.getUser();
@@ -425,6 +437,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       }
       void loadMemberships(authData.user);
     })();
+    else setIsHydrated(true);
     const { data: listener } = supabase.auth.onAuthStateChange((_event, authSession) => {
       window.setTimeout(() => {
         if (!mounted) return;
@@ -496,11 +509,14 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         ? await integrationResponse.json() as { integrations?: TenantIntegrationVault[] }
         : { integrations: [] };
       if (requestId !== workspaceRequest.current) return;
+      const workspaceMessages = rows<Message>(messageR.data);
+      const newestMessage = workspaceMessages[workspaceMessages.length - 1]?.created_at;
+      if (newestMessage) messagesWatermarkRef.current = newestMessage;
       setData((previous) => ({
         ...previous,
         pipelines: rows<Pipeline>(pipelineR.data), pipelineStages: rows<PipelineStage>(stageR.data),
         opportunities: rows<Opportunity>(opportunityR.data).map((item) => ({ ...item, monetary_value: Number(item.monetary_value) })),
-        conversations: rows<Conversation>(conversationR.data), messages: rows<Message>(messageR.data),
+        conversations: rows<Conversation>(conversationR.data), messages: workspaceMessages,
         whatsappTemplates: rows<WhatsAppTemplate>(templateR.data), workflows: rows<Workflow>(workflowR.data),
         workflowEnrollments: rows<WorkflowEnrollment>(enrollmentR.data), aiBots: rows<AiBot>(botR.data),
         integrationsVault: rows<TenantIntegrationVault>(integrationResult.integrations),
@@ -582,17 +598,26 @@ export function CrmProvider({ children }: { children: ReactNode }) {
         let conversationQuery = supabase.from("conversations").select("*")
           .eq("tenant_id", tenantId).order("last_message_at", { ascending: false });
         if (assignedMemberId) conversationQuery = conversationQuery.eq("assigned_member_id", assignedMemberId);
+        /* Mensajes solo incrementales: sin marca de agua se traen los 500 más
+           recientes; con marca, solo los posteriores a ella. */
+        const watermark = messagesWatermarkRef.current;
+        let messageQuery = supabase.from("messages").select("*")
+          .eq("tenant_id", tenantId).order("created_at", { ascending: true });
+        messageQuery = watermark ? messageQuery.gt("created_at", watermark) : messageQuery.limit(500);
         const [conversationR, messageR] = await Promise.all([
           conversationQuery,
-          supabase.from("messages").select("*").eq("tenant_id", tenantId).order("created_at").limit(2000),
+          messageQuery,
           loadContacts(),
         ]);
         if (disposed || conversationR.error || messageR.error) return;
-        setData((previous) => ({
-          ...previous,
-          conversations: rows<Conversation>(conversationR.data),
-          messages: rows<Message>(messageR.data),
-        }));
+        setData((previous) => {
+          const byId = new Map(previous.messages.map((item) => [item.id, item]));
+          for (const message of rows<Message>(messageR.data)) byId.set(message.id, message);
+          const messages = [...byId.values()].sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const newest = messages[messages.length - 1]?.created_at;
+          if (newest) messagesWatermarkRef.current = newest;
+          return { ...previous, conversations: rows<Conversation>(conversationR.data), messages };
+        });
       } finally {
         syncRunning = false;
       }
@@ -615,6 +640,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
       },
       onMessage: (message) => setData((previous) => {
         if (assignedMemberId && !previous.conversations.some((item) => item.id === message.conversation_id)) return previous;
+        if (message.created_at > (messagesWatermarkRef.current ?? "")) messagesWatermarkRef.current = message.created_at;
         return { ...previous, messages: upsert(previous.messages, message).sort((a, b) => a.created_at.localeCompare(b.created_at)) };
       }),
     });
@@ -648,7 +674,12 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       const message = errorMessage(error);
       setDataError(message);
-      throw new Error(message);
+      /* Preservar el status HTTP (p. ej. 409 de ventana 24 h cerrada) para que
+         la UI pueda mostrar avisos contextuales. */
+      const wrapped = new Error(message) as Error & { status?: number };
+      const status = (error as { status?: number } | null)?.status;
+      if (typeof status === "number") wrapped.status = status;
+      throw wrapped;
     } finally {
       setIsMutating(false);
     }
@@ -759,23 +790,56 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     setContactQueryState((previous) => ({ ...previous, ...patch, page: patch.page ?? (Object.keys(patch).some((key) => key !== "page") ? 0 : previous.page) }));
   }, []);
 
+  /* QA-NEW-006: sincroniza contact_phones / contact_emails al crear o editar
+     manualmente, igual que hace la ingesta de leads. best-effort: un fallo
+     secundario no revierte la operación principal. */
+  const syncManualIdentity = useCallback(async (tenantId: string, contactId: string, phoneE164: string, email: string | null) => {
+    try {
+      const supabase = createClient();
+      if (phoneE164) await supabase.from("contact_phones").upsert(
+        { tenant_id: tenantId, contact_id: contactId, phone_e164: phoneE164, is_primary: true, source: "manual" },
+        { onConflict: "tenant_id,phone_e164", ignoreDuplicates: true },
+      );
+      if (email) {
+        await supabase.from("contact_emails").insert({
+          tenant_id: tenantId, contact_id: contactId, email: email.toLowerCase(), is_primary: true, source: "manual",
+        }).then(({ error }) => { if (error && error.code !== "23505") console.error("contact_emails sync failed", error.message); });
+      }
+    } catch (error) {
+      console.error("syncManualIdentity falló", error);
+    }
+  }, []);
+
   const importContacts = useCallback(async (inputs: CreateContactInput[]) => {
     const tenantId = requireTenant();
     if (!activeMember) return { imported: 0, failed: inputs.length };
-    const payload = inputs.map((input) => ({
-      tenant_id: tenantId,
-      assigned_member_id: input.assigned_member_id ?? (activeMember.role === "agent" ? activeMember.id : null),
-      full_name: input.full_name.trim(), phone_e164: input.phone_e164.replace(/\D/g, ""),
-      email: input.email?.trim() || null, company_name: input.company_name?.trim() || null,
-      lead_source: input.lead_source?.trim() || "WhatsApp", tags: input.tags ?? [], custom_fields: {},
-    }));
+    const payload = [];
+    let invalid = 0;
+    for (const input of inputs) {
+      /* QA-NEW-006: normalización E.164 estricta; filas inválidas se rechazan
+         con mensaje claro y cuentan como fallidas. */
+      const normalized = normalizeCoPhone(input.phone_e164);
+      if (!normalized.ok) { invalid += 1; continue; }
+      payload.push({
+        tenant_id: tenantId,
+        assigned_member_id: input.assigned_member_id ?? (activeMember.role === "agent" ? activeMember.id : null),
+        full_name: input.full_name.trim(), phone_e164: normalized.e164,
+        email: input.email?.trim() || null, company_name: input.company_name?.trim() || null,
+        lead_source: input.lead_source?.trim() || "WhatsApp", tags: input.tags ?? [], custom_fields: {},
+      });
+    }
+    if (payload.length === 0) {
+      setDataError(`No se importó ningún contacto: ${invalid > 0 ? `${invalid} teléfono(s) inválido(s) (usa 10 dígitos móviles 3XX...).` : "no hay filas válidas."}`);
+      return { imported: 0, failed: inputs.length };
+    }
     const { error } = await createClient().from("contacts").insert(payload);
     if (error) {
       setDataError(`No se importaron los contactos: ${error.message}`);
       return { imported: 0, failed: inputs.length };
     }
+    if (invalid > 0) setDataError(`Importación parcial: ${invalid} fila(s) omitida(s) por teléfono inválido.`);
     await refreshData();
-    return { imported: inputs.length, failed: 0 };
+    return { imported: payload.length, failed: invalid };
   }, [activeMember, refreshData, requireTenant]);
 
   const dashboardStats = useMemo<DashboardStats>(() => ({
@@ -828,18 +892,33 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     contactQuery, setContactQuery, login, register, logout, switchTenant, setViewingAsMemberId, refreshData, updateActiveTenantBranding,
     createContact: (input) => runMutation(async () => {
       const tenantId = requireTenant();
-      const { error } = await createClient().from("contacts").insert({
+      /* QA-NEW-006: siempre E.164 validado; rechazo claro si no aplica. */
+      const normalized = normalizeCoPhone(input.phone_e164);
+      if (!normalized.ok) throw new Error(normalized.reason);
+      const { data, error } = await createClient().from("contacts").insert({
         tenant_id: tenantId, assigned_member_id: input.assigned_member_id ?? (activeMember?.role === "agent" ? activeMember.id : null),
-        full_name: input.full_name.trim(), phone_e164: input.phone_e164.replace(/\D/g, ""), email: input.email?.trim() || null,
+        full_name: input.full_name.trim(), phone_e164: normalized.e164, email: input.email?.trim() || null,
         company_name: input.company_name?.trim() || null, lead_source: input.lead_source?.trim() || "WhatsApp",
         tags: input.tags ?? [], custom_fields: {}, last_interaction_at: new Date().toISOString(),
-      });
+      }).select("id").single();
       if (error) throw new Error(error.message);
+      await syncManualIdentity(tenantId, data.id, normalized.e164, input.email?.trim() || null);
     }),
     importContacts,
     updateContact: (contactId, patch) => runMutation(async () => {
-      const { error } = await createClient().from("contacts").update(patch).eq("id", contactId).eq("tenant_id", requireTenant());
+      const tenantId = requireTenant();
+      const nextPatch = { ...patch } as typeof patch & { phone_e164?: string };
+      /* QA-NEW-006: validar/normalizar el teléfono cuando viene en el patch. */
+      if (patch.phone_e164 !== undefined) {
+        const normalized = normalizeCoPhone(patch.phone_e164);
+        if (!normalized.ok) throw new Error(normalized.reason);
+        nextPatch.phone_e164 = normalized.e164;
+      }
+      const { error } = await createClient().from("contacts").update(nextPatch).eq("id", contactId).eq("tenant_id", tenantId);
       if (error) throw new Error(error.message);
+      if (nextPatch.phone_e164 !== undefined || patch.email !== undefined) {
+        await syncManualIdentity(tenantId, contactId, nextPatch.phone_e164 ?? "", patch.email ?? null);
+      }
     }),
     deleteContact: (contactId) => runMutation(async () => {
       const { error } = await createClient().from("contacts").delete().eq("id", contactId).eq("tenant_id", requireTenant());
@@ -877,7 +956,11 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     sendMessage: (conversationId, input) => runMutationAsync(async () => {
       const response = await fetch("/api/v1/whatsapp/send", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ conversationId, ...input }) });
       const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar el mensaje.");
+      if (!response.ok) {
+        const failure = new Error(result.error ?? "No se pudo enviar el mensaje.") as Error & { status?: number };
+        failure.status = response.status;
+        throw failure;
+      }
     }),
     setConversationHandler: (conversationId, handlerMode) => runMutation(async () => {
       const { error } = await createClient().from("conversations").update({ handler_mode: handlerMode })
@@ -1102,7 +1185,7 @@ export function CrmProvider({ children }: { children: ReactNode }) {
     activeMember, activeTenant, contactQuery, contactTotal, dashboardStats, data, dataError,
     importContacts, isHydrated, isLoadingData, isMutating, isPlatformSuperadmin, login, logout, monthlyPerformance,
     pipelineStages, pipelineSummary, refreshData, register, requireTenant, runMutation, runMutationAsync, session, setContactQuery,
-    setIntegrationConnected, setViewingAsMemberId, switchTenant, tenants, updateActiveTenantBranding, userAccounts, viewingAsMemberId, visibleMessages,
+    setIntegrationConnected, setViewingAsMemberId, switchTenant, syncManualIdentity, tenants, updateActiveTenantBranding, userAccounts, viewingAsMemberId, visibleMessages,
   ]);
 
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>;

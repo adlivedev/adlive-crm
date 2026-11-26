@@ -64,13 +64,6 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   document: "Documento",
 };
 
-interface Appointment {
-  id: string;
-  title: string;
-  scheduledAt: string;
-  location: string;
-}
-
 function memberLabel(email: string | null | undefined): string {
   if (!email) return "Sistema";
   return email.split("@")[0] ?? email;
@@ -114,7 +107,7 @@ export function CommercialTabs({ contact }: { contact: Contact }) {
         {activeTab === "tareas" ? <TasksTab contact={contact} /> : null}
         {activeTab === "empresas" ? <CompaniesTab contact={contact} /> : null}
         {activeTab === "documentos" ? <DocumentsTab contact={contact} /> : null}
-        {activeTab === "citas" ? <AppointmentsTab /> : null}
+        {activeTab === "citas" ? <AppointmentsTab contact={contact} /> : null}
         {activeTab === "leads" ? <LeadsTab contact={contact} /> : null}
       </div>
     </Card>
@@ -599,33 +592,49 @@ function DocumentsTab({ contact }: { contact: Contact }) {
 }
 
 /* ============================================================================
- * CITAS (agenda en memoria, mock de Etapa A)
+ * CITAS — persistidas en contact_tasks con prefijo «CITA:» (QA-NEW-011):
+ * sobreviven a F5 y se comparten con el equipo, igual que las tareas.
  * ========================================================================== */
 
-function AppointmentsTab() {
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+const APPOINTMENT_PREFIX = "CITA:";
+
+interface Appointment {
+  id: string;
+  title: string;
+  scheduledAt: string;
+  location: string;
+}
+
+/** Separa «CITA: Título (Lugar)» en título y lugar. */
+function parseAppointmentTask(title: string): { title: string; location: string } {
+  const withoutPrefix = title.startsWith(APPOINTMENT_PREFIX) ? title.slice(APPOINTMENT_PREFIX.length).trim() : title;
+  const match = withoutPrefix.match(/^(.*?)\s*\((.*)\)$/s);
+  if (match) return { title: match[1]!.trim(), location: match[2]!.trim() };
+  return { title: withoutPrefix, location: "" };
+}
+
+function AppointmentsTab({ contact }: { contact: Contact }) {
+  const { tasks, addContactTask, refreshData } = useCrm();
   const [title, setTitle] = useState("");
   const [scheduledAt, setScheduledAt] = useState("");
   const [location, setLocation] = useState("");
 
+  const appointments: Appointment[] = tasks
+    .filter((task) => task.contact_id === contact.id && task.title.startsWith(APPOINTMENT_PREFIX) && !task.is_completed)
+    .map((task) => ({ id: task.id, scheduledAt: task.due_at ?? task.created_at, ...parseAppointmentTask(task.title) }));
+
   const handleAdd = () => {
     if (!title.trim() || !scheduledAt) return;
-    setAppointments((previous) => [
-      {
-        id: `appt-${crypto.randomUUID()}`,
-        title: title.trim(),
-        scheduledAt: new Date(scheduledAt).toISOString(),
-        location: location.trim(),
-      },
-      ...previous,
-    ]);
+    const composed = `${APPOINTMENT_PREFIX} ${title.trim()}${location.trim() ? ` (${location.trim()})` : ""}`;
+    addContactTask(contact.id, composed, new Date(scheduledAt).toISOString());
     setTitle("");
     setScheduledAt("");
     setLocation("");
   };
 
-  const handleRemove = (id: string) => {
-    setAppointments((previous) => previous.filter((appointment) => appointment.id !== id));
+  const handleRemove = async (id: string) => {
+    await createClient().from("contact_tasks").delete().eq("id", id).eq("contact_id", contact.id);
+    await refreshData();
   };
 
   return (

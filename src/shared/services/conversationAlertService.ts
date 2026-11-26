@@ -5,6 +5,17 @@ import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 import { createNotification } from "./notificationService";
 
+/* QA-NEW-009: los correos se leen fuera de la app (Gmail/Outlook): enlaces
+   absolutos al dominio real y datos dinámicos escapados contra inyección HTML. */
+function appOrigin(): string {
+  return process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, "") || "https://adlive-crm.vercel.app";
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 /** Correos solo para eventos prioritarios; si el SMTP global no está
  *  configurado, se registra y se continúa sin romper el flujo principal. */
 async function sendPriorityEmail(input: { tenantId: string; to: string[]; subject: string; html: string }): Promise<void> {
@@ -82,11 +93,12 @@ export async function emailLeadAssigned(input: { tenantId: string; contactId: st
   if (!input.memberId) return;
   const [to] = await memberEmails(input.tenantId, [input.memberId]);
   if (!to) return;
+  const safeName = escapeHtml(input.contactName);
   await sendPriorityEmail({
     tenantId: input.tenantId,
     to: [to],
     subject: `${input.contactName} quedó asignado a ti`,
-    html: `<p>Hola,</p><p><strong>${input.contactName}</strong> acaba de llegar y quedó en tu bandeja para seguimiento.</p><p>Entra al CRM y escríbele pronto: mientras más rápido respondas, más probable es que cierre.</p><p style="margin-top:24px;"><a href="/contactos/${input.contactId}" style="display:inline-block;background:#4F46E5;color:#FFFFFF;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Ver contacto</a></p>`,
+    html: `<p>Hola,</p><p><strong>${safeName}</strong> acaba de llegar y quedó en tu bandeja para seguimiento.</p><p>Entra al CRM y escríbele pronto: mientras más rápido respondas, más probable es que cierre.</p><p style="margin-top:24px;"><a href="${appOrigin()}/contactos/${input.contactId}" style="display:inline-block;background:#4F46E5;color:#FFFFFF;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Ver contacto</a></p>`,
   });
 }
 
@@ -96,11 +108,12 @@ export async function emailSlaAlert(input: { tenantId: string; memberId: string 
   const { data: admins } = await createAdminClient().from("tenant_members").select("id").eq("tenant_id", input.tenantId).eq("is_active", true).in("role", ["owner", "admin"]);
   const to = await memberEmails(input.tenantId, [...recipients, ...(admins ?? []).map((row) => row.id)]);
   if (to.length === 0) return;
+  const safeName = escapeHtml(input.contactName);
   await sendPriorityEmail({
     tenantId: input.tenantId,
     to,
     subject: `Un chat lleva más de ${input.hours} h sin respuesta`,
-    html: `<p>Hola,</p><p>La conversación con <strong>${input.contactName}</strong> lleva más de <strong>${input.hours} hora(s)</strong> sin respuesta humana y el cliente sigue esperando.</p><p>Entra y respóndele cuanto antes para no perder el lead.</p><p style="margin-top:24px;"><a href="/conversaciones?open=${input.conversationId}" style="display:inline-block;background:#DC2626;color:#FFFFFF;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Responder ahora</a></p>`,
+    html: `<p>Hola,</p><p>La conversación con <strong>${safeName}</strong> lleva más de <strong>${input.hours} hora(s)</strong> sin respuesta humana y el cliente sigue esperando.</p><p>Entra y respóndele cuanto antes para no perder el lead.</p><p style="margin-top:24px;"><a href="${appOrigin()}/conversaciones?open=${input.conversationId}" style="display:inline-block;background:#DC2626;color:#FFFFFF;padding:12px 20px;border-radius:10px;text-decoration:none;font-weight:bold;">Responder ahora</a></p>`,
   });
 }
 
@@ -119,8 +132,8 @@ export async function sendDailySummary(tenantId: string): Promise<number> {
     acc[contact.lead_source ?? "Otro"] = (acc[contact.lead_source ?? "Otro"] ?? 0) + 1;
     return acc;
   }, {});
-  const rows = Object.entries(bySource).map(([source, count]) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;">${source}</td><td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;text-align:right;font-weight:bold;">${count}</td></tr>`).join("");
-  const contactList = created.slice(0, 10).map((contact) => `<li style="margin:4px 0;">${contact.full_name} <span style="color:#6B7280;">(${contact.lead_source ?? "Otro"})</span></li>`).join("");
+  const rows = Object.entries(bySource).map(([source, count]) => `<tr><td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;">${escapeHtml(source)}</td><td style="padding:8px 12px;border-bottom:1px solid #E5E7EB;text-align:right;font-weight:bold;">${count}</td></tr>`).join("");
+  const contactList = created.slice(0, 10).map((contact) => `<li style="margin:4px 0;">${escapeHtml(contact.full_name)} <span style="color:#6B7280;">(${escapeHtml(contact.lead_source ?? "Otro")})</span></li>`).join("");
   await sendPriorityEmail({
     tenantId,
     to,

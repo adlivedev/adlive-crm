@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { useCrm } from "@/shared/services/crmStore";
 import type { ConversationWithDetails } from "@/shared/types/database";
@@ -15,6 +16,10 @@ export function InboxView() {
   const [filter, setFilter] = useState<InboxFilter>(EMPTY_INBOX_FILTER);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  /* QA-NEW-009: deep-link /conversaciones?open=<id> (correos de alerta y
+     notificaciones) abre directamente el hilo indicado. */
+  const searchParams = useSearchParams();
+  const openParam = searchParams.get("open");
 
   const threads = useMemo<ConversationWithDetails[]>(() => {
     const contactById = new Map(contacts.map((contact) => [contact.id, contact]));
@@ -47,11 +52,17 @@ export function InboxView() {
   const selectedContact = selectedThread ? contactById.get(selectedThread.contact_id) : undefined;
 
   useEffect(() => {
-    if (selectedId && !selectedThread) {
+    if (openParam) setSelectedId(openParam);
+  }, [openParam]);
+
+  useEffect(() => {
+    /* Solo se limpia la selección si el hilo no existe tras cargar las
+       conversaciones (evita borrar el deep-link durante la carga inicial). */
+    if (selectedId && !selectedThread && conversations.length > 0) {
       setSelectedId(null);
       setInfoOpen(false);
     }
-  }, [selectedId, selectedThread]);
+  }, [selectedId, selectedThread, conversations.length]);
 
   useEffect(() => {
     if (!infoOpen) return;

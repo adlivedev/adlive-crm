@@ -9,6 +9,7 @@ import { useState } from "react";
 
 import { Button } from "@/shared/components/ui/Button";
 import { Input } from "@/shared/components/ui/Input";
+import { normalizeCoPhone } from "@/shared/lib/phone";
 import { useCrm } from "@/shared/services/crmStore";
 
 import { Modal } from "./Modal";
@@ -56,14 +57,14 @@ export function NewContactModal({ open, onClose }: NewContactModalProps) {
       setError("El nombre del contacto es obligatorio.");
       return;
     }
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 10) {
-      setError("Ingresa un teléfono válido (mínimo 10 dígitos).");
+    const normalized = normalizeCoPhone(phone);
+    if (!normalized.ok) {
+      setError(normalized.reason);
       return;
     }
     createContact({
       full_name: fullName,
-      phone_e164: digits,
+      phone_e164: normalized.e164,
       email: email.trim() || null,
       company_name: company.trim() || null,
       lead_source: source,

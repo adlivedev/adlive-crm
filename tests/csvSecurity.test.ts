@@ -26,18 +26,34 @@ describe("TC-024 — neutralización de fórmulas CSV", () => {
   );
 
   it("sanitiza nombre, email, empresa y fuente durante la importación", () => {
-    const [contact] = parseContactsCsv([
+    const { rows } = parseContactsCsv([
       "Nombre;Teléfono;Email;Empresa;Fuente",
       "=CMD|' /C calc'!A0;573201234567;+SUM(1,2);  @SUM(1,2);\t-2+3",
     ].join("\r\n"));
 
-    expect(contact).toMatchObject({
+    expect(rows[0]).toMatchObject({
       full_name: "'=CMD|' /C calc'!A0",
-      phone_e164: "573201234567",
+      phone_e164: "+573201234567",
       email: "'+SUM(1,2)",
       company_name: "'@SUM(1,2)",
       lead_source: "'-2+3",
     });
+  });
+
+  it("QA-NEW-006: normaliza teléfonos a E.164 y reporta filas inválidas en skipped", () => {
+    const { rows, skipped } = parseContactsCsv([
+      "Nombre;Teléfono",
+      "Juan;3001234567",
+      "Ana;+57 301 987 6543",
+      "Malo;1111111111",
+      "Vacio;",
+    ].join("\r\n"));
+
+    expect(rows.map((row) => row.phone_e164)).toEqual(["+573001234567", "+573019876543"]);
+    expect(skipped).toHaveLength(2);
+    expect(skipped[0]).toMatchObject({ name: "Malo", phone: "1111111111" });
+    /* «Vacio» tiene nombre pero teléfono vacío: también se reporta. */
+    expect(skipped[1]).toMatchObject({ name: "Vacio", phone: "" });
   });
 
   it("sanitiza todos los campos de texto durante la exportación", () => {

@@ -158,7 +158,13 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
           <select
             id="bot-provider"
             value={provider}
-            onChange={(event) => setProvider(event.target.value as AiBotProvider)}
+            onChange={(event) => {
+              /* QA-NEW-007: al cambiar de proveedor los modelos del proveedor
+                 anterior dejan de existir → se reinician ambos campos. */
+              setProvider(event.target.value as AiBotProvider);
+              setModelName("");
+              setFallbackModels([]);
+            }}
             className={SELECT_CLASS}
           >
             {AI_PROVIDER_SPECS.filter((spec) => spec.provider !== "integrated").map((spec) => (
@@ -208,11 +214,11 @@ export function NewBotModal({ open, bot, onClose, onSave, onConfigureProvider }:
           </div>
         </div>
 
-        {modelName && availableModels.filter((model) => model !== modelName).length > 0 ? (
+        {(modelName ? availableModels.filter((model) => model !== modelName) : availableModels).length > 0 ? (
           <div className="flex flex-col gap-1.5">
             <span className="text-sm font-medium text-adlive-text-main">Modelos de respaldo (fallback automático)</span>
             <div className="flex flex-wrap gap-2">
-              {availableModels.filter((model) => model !== modelName).map((model) => {
+              {(modelName ? availableModels.filter((model) => model !== modelName) : availableModels).map((model) => {
                 const checked = fallbackModels.includes(model);
                 return (
                   <label key={model} className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${checked ? "border-adlive-primary bg-adlive-primary-light text-adlive-primary" : "border-adlive-border bg-white text-adlive-text-muted"}`}>

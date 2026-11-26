@@ -82,8 +82,19 @@ export function PublicLeadForm({ tenantId, token, fields, ctaText, primary, them
           ...attribution,
         }),
       });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "No se pudo enviar el formulario.");
+      const result = await response.json() as {
+        error?: string;
+        /* QA-NEW-011: el backend devuelve errores por campo (zod). */
+        fields?: Record<string, string[] | undefined>;
+      };
+      if (!response.ok) {
+        /* Mostrar el mensaje específico del primer campo fallido (p. ej. el
+           error exacto del teléfono) en lugar del genérico «Payload no válido». */
+        const firstFieldError = result.fields
+          ? Object.values(result.fields).flat().find((message) => Boolean(message))
+          : undefined;
+        throw new Error(firstFieldError ?? result.error ?? "No se pudo enviar el formulario.");
+      }
       setStatus("success");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "No se pudo enviar. Inténtalo de nuevo.");

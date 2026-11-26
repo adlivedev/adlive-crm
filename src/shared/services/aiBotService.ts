@@ -238,27 +238,55 @@ export async function testProviderConnection(provider: SupportedProvider, tenant
   const formatWarning = apiKey.startsWith(format.prefix) ? null
     : `Aviso de formato: las claves de ${provider} suelen empezar por «${format.prefix}». La tuya empieza por «${apiKey.slice(0, 4)}…». ${format.where}`;
 
-  const model = DEFAULT_CHAIN[provider][0]!;
+  const chain = DEFAULT_CHAIN[provider];
   const startedAt = Date.now();
-  try {
-    await generateWithModel(provider, model, apiKey, "Responde únicamente: OK", [{ role: "user", content: "Di OK" }]);
-    const latencyMs = Date.now() - startedAt;
-    return {
-      ok: true, status: formatWarning ? "format_warning" : "connected", model, latencyMs,
-      message: formatWarning ? `Conexión exitosa con ${model} en ${latencyMs} ms. ${formatWarning}` : `Conexión exitosa con ${model} en ${latencyMs} ms. El proveedor respondió correctamente.`,
-    };
-  } catch (caught) {
-    const latencyMs = Date.now() - startedAt;
-    const httpStatus = caught instanceof ProviderHttpError ? caught.status : undefined;
-    console.error("[ai-bots/providers/test]", JSON.stringify({ tenantId, provider, model, httpStatus: httpStatus ?? null, error: caught instanceof Error ? caught.message : String(caught) }));
-    const diagnostics = httpStatus === 400 || httpStatus === 401 || httpStatus === 403
-      ? `El proveedor rechazó la clave (HTTP ${httpStatus}). Verifica que la API key sea válida y esté activa. ${format.where}`
-      : httpStatus === 404 ? `El modelo ${model} no está disponible para esta clave (HTTP 404). Prueba otro modelo en el selector del bot.`
-        : httpStatus === 429 ? `Cuota agotada o límite de peticiones (HTTP 429). Espera unos minutos o revisa el plan.`
-          : httpStatus === 503 ? `El proveedor está saturado (HTTP 503). Intenta de nuevo en unos segundos.`
-            : `No se pudo conectar con el proveedor${httpStatus ? ` (HTTP ${httpStatus})` : ""}. Revisa tu conexión y la clave.`;
-    return { ok: false, status: "http_error", model, latencyMs, httpStatus, message: formatWarning ? `${diagnostics} ${formatWarning}` : diagnostics };
+  /* QA-NEW-007: igual que generateBotText — si el primer modelo de la cadena
+     no está habilitado para esta key (404) o está saturado (429/503/timeout),
+     se recorre el resto de DEFAULT_CHAIN[provider] antes de declarar fallo. */
+  let lastError: unknown = null;
+  let lastModel = chain[0] ?? "unknown";
+  let fatalError = false;
+  for (const candidate of chain) {
+    lastModel = candidate;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await generateWithModel(provider, candidate, apiKey, "Responde únicamente: OK", [{ role: "user", content: "Di OK" }]);
+        const latencyMs = Date.now() - startedAt;
+        const fallbackNote = candidate !== chain[0] ? ` (recuperado vía respaldo: el modelo ${chain[0]} no respondió)` : "";
+        return {
+          ok: true, status: formatWarning ? "format_warning" : "connected", model: candidate, latencyMs,
+          message: formatWarning ? `Conexión exitosa con ${candidate} en ${latencyMs} ms.${fallbackNote} ${formatWarning}` : `Conexión exitosa con ${candidate} en ${latencyMs} ms.${fallbackNote} El proveedor respondió correctamente.`,
+        };
+      } catch (caught) {
+        lastError = caught;
+        if (!(caught instanceof ProviderHttpError)) {
+          if (caught instanceof Error && caught.name === "TimeoutError") break; // timeout: siguiente modelo
+          const latencyMs = Date.now() - startedAt;
+          return { ok: false, status: "http_error", model: candidate, latencyMs, message: formatWarning ? `No se pudo conectar con el proveedor. ${formatWarning}` : "No se pudo conectar con el proveedor. Revisa tu conexión y la clave." };
+        }
+        if (caught.status === 404 || caught.status === 429) break; // sin acceso o cuota: siguiente modelo
+        if (caught.status === 503) {
+          if (attempt === 0) { await new Promise((resolve) => setTimeout(resolve, 2500)); continue; }
+          break;
+        }
+        /* 400/401/403 u otro error: la clave o el modelo es rechazado de
+           plano, no tiene sentido probar más modelos de la cadena. */
+        fatalError = true;
+        break;
+      }
+    }
+    if (fatalError) break;
   }
+  const latencyMs = Date.now() - startedAt;
+  const httpStatus = lastError instanceof ProviderHttpError ? lastError.status : undefined;
+  console.error("[ai-bots/providers/test]", JSON.stringify({ tenantId, provider, model: lastModel, httpStatus: httpStatus ?? null, error: lastError instanceof Error ? lastError.message : String(lastError) }));
+  const diagnostics = httpStatus === 400 || httpStatus === 401 || httpStatus === 403
+    ? `El proveedor rechazó la clave (HTTP ${httpStatus}). Verifica que la API key sea válida y esté activa. ${format.where}`
+    : httpStatus === 404 ? `Ningún modelo de la cadena (${chain.join(", ")}) está disponible para esta clave (HTTP 404). Prueba otro modelo en el selector del bot.`
+      : httpStatus === 429 ? `Cuota agotada o límite de peticiones (HTTP 429). Espera unos minutos o revisa el plan.`
+        : httpStatus === 503 ? `El proveedor está saturado (HTTP 503). Intenta de nuevo en unos segundos.`
+          : `No se pudo conectar con el proveedor${httpStatus ? ` (HTTP ${httpStatus})` : ""}. Revisa tu conexión y la clave.`;
+  return { ok: false, status: "http_error", model: lastModel, latencyMs, httpStatus, message: formatWarning ? `${diagnostics} ${formatWarning}` : diagnostics };
 }
 
 /** El orquestador vive en @/shared/lib/aiOrchestration (lógica pura, testeable);
