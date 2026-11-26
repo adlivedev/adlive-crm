@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { ACTIVE_TENANT_COOKIE, evaluateWorkspaceAccess } from "@/shared/lib/auth/workspaceAccess";
+import { checkServerRateLimit, clientIp } from "@/shared/lib/rateLimit";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import { createClient } from "@/shared/lib/supabase/server";
 import type { Tenant } from "@/shared/types/database";
@@ -14,8 +15,8 @@ const loginSchema = z.object({
   workspaceSlug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).max(150).nullable().optional(),
 });
 
-function responseWithTenant(body: Record<string, unknown>, tenantId?: string, status = 200) {
-  const response = NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
+function responseWithTenant(body: Record<string, unknown>, tenantId?: string, status = 200, extraHeaders: Record<string, string> = {}) {
+  const response = NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", ...extraHeaders } });
   if (tenantId) {
     response.cookies.set(ACTIVE_TENANT_COOKIE, tenantId, {
       path: "/", sameSite: "lax", secure: process.env.NODE_ENV === "production", maxAge: 60 * 60 * 24 * 30,
@@ -29,6 +30,12 @@ function responseWithTenant(body: Record<string, unknown>, tenantId?: string, st
 export async function POST(request: Request) {
   const parsed = loginSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return responseWithTenant({ error: "Revisa el correo, la contraseña y el workspace." }, undefined, 400);
+
+  /* QA-NEW-004: máx. 5 intentos por minuto por IP + correo (anti fuerza bruta). */
+  const retryAfter = await checkServerRateLimit(`login:${clientIp(request)}:${parsed.data.email}`, 5, 60);
+  if (retryAfter !== null) {
+    return responseWithTenant({ error: "Demasiados intentos de acceso. Espera un minuto e inténtalo de nuevo." }, undefined, 429, { "Retry-After": String(retryAfter) });
+  }
 
   const supabase = await createClient();
   let sessionStarted = false;

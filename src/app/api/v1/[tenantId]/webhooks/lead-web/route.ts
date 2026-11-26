@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { checkServerRateLimit, clientIp } from "@/shared/lib/rateLimit";
 import {
   ingestTenantWebLead,
   InvalidPublicWebhookTokenError,
@@ -46,6 +47,12 @@ export async function POST(request: Request, context: RouteContext) {
 
   const parsed = tenantLeadWebPayloadSchema.safeParse(input);
   if (!parsed.success) return json({ error: "Payload no válido.", fields: parsed.error.flatten().fieldErrors }, 400);
+
+  /* QA-NEW-004: máx. 10 envíos por minuto por IP + workspace. */
+  const retryAfter = await checkServerRateLimit(`leadweb:${clientIp(request)}:${tenantId.data}`, 10, 60);
+  if (retryAfter !== null) {
+    return NextResponse.json({ error: "Demasiados envíos. Inténtalo de nuevo en un minuto." }, { status: 429, headers: { ...CORS_HEADERS, "Retry-After": String(retryAfter) } });
+  }
 
   try {
     const result = await ingestTenantWebLead(tenantId.data, parsed.data);

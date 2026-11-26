@@ -8,6 +8,16 @@ import { createAdminClient } from "@/shared/lib/supabase/admin";
 
 export const runtime = "nodejs";
 
+/* Bug crítico (cuenta global): generateLink(type:"invite") devuelve el usuario
+   EXISTENTE cuando el correo ya pertenece a auth.users (otro workspace). Solo
+   una cuenta creada en ESTA petición es elegible para rollback destructivo. */
+async function findAuthUserByEmail(admin: ReturnType<typeof createAdminClient>, email: string) {
+  const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+  if (error) return null;
+  const normalized = email.trim().toLowerCase();
+  return data.users.find((user) => user.email?.trim().toLowerCase() === normalized) ?? null;
+}
+
 const inviteSchema = z.object({
   tenantId: z.string().uuid(),
   email: z.string().trim().toLowerCase().email().max(255),
@@ -29,6 +39,7 @@ export async function POST(request: Request) {
     // nativo de Supabase es inestable en producción (límite de 4 correos/hora en el
     // plan compartido) y provocaba invitaciones fallidas silenciosas.
     const redirectTo = `${appUrl}/login?workspace=${encodeURIComponent(tenant.slug)}`;
+    const existingUser = await findAuthUserByEmail(admin, input.email);
     const linkResult = await admin.auth.admin.generateLink({
       type: "invite",
       email: input.email,
@@ -39,12 +50,15 @@ export async function POST(request: Request) {
     if (linkResult.error || !invitedUser || !actionLink) {
       return NextResponse.json({ error: "No se pudo generar la invitación. Verifica el correo." }, { status: 400 });
     }
+    // Rollback destructivo solo si la cuenta fue creada en esta petición; un
+    // usuario preexistente (otro workspace) jamás se elimina de auth.users.
+    const createdNewUserId = existingUser ? null : invitedUser.id;
     const { error } = await admin.from("tenant_members").upsert({
       tenant_id: input.tenantId, user_id: invitedUser.id, email: input.email, role: input.role,
       is_active: true, can_view_all_contacts: input.role === "admin", presence: "offline",
     }, { onConflict: "tenant_id,email" });
     if (error) {
-      await admin.auth.admin.deleteUser(invitedUser.id).catch(() => undefined);
+      if (createdNewUserId) await admin.auth.admin.deleteUser(createdNewUserId).catch(() => undefined);
       return NextResponse.json({ error: "El usuario fue invitado, pero no se pudo guardar su membresía." }, { status: 500 });
     }
     try {
@@ -56,7 +70,7 @@ export async function POST(request: Request) {
         text: `Acepta la invitación al equipo de ${tenant.name}: ${actionLink}`,
       });
     } catch {
-      await admin.auth.admin.deleteUser(invitedUser.id).catch(() => undefined);
+      if (createdNewUserId) await admin.auth.admin.deleteUser(createdNewUserId).catch(() => undefined);
       return NextResponse.json({ error: "No se pudo enviar el correo de invitación. Revisa la configuración SMTP e inténtalo de nuevo." }, { status: 502 });
     }
     // Auditoría: quién creó la invitación y si usó el override de superadmin.

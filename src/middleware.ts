@@ -22,7 +22,13 @@ export async function middleware(request: NextRequest) {
       setAll(cookiesToSet) {
         cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
         response = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+        cookiesToSet.forEach(({ name, value, options }) => response.cookies.set(name, value, {
+          ...options,
+          /* QA-NEW-002: misma endurecimiento que server.ts/client.ts. */
+          sameSite: "lax",
+          secure: process.env.NODE_ENV === "production",
+          maxAge: Math.min(options.maxAge ?? 28_800, 28_800),
+        }));
       },
     },
   });
@@ -35,24 +41,54 @@ export async function middleware(request: NextRequest) {
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
   }
-  if (user && (pathname === "/login" || pathname === "/register")) {
+  if (user && (pathname === "/login" || pathname === "/register") && !request.nextUrl.searchParams.has("reauth")) {
     const dashboardUrl = request.nextUrl.clone();
     dashboardUrl.pathname = "/dashboard";
     dashboardUrl.search = "";
     return NextResponse.redirect(dashboardUrl);
   }
 
+  /* QA-NEW-005: redirige a login forzando re-autenticación (evita el rebote de
+     la regla anterior para usuarios con sesión pero tenant inválido). */
+  const reauthRedirect = () => {
+    const loginUrl = request.nextUrl.clone();
+    loginUrl.pathname = "/login";
+    loginUrl.search = "";
+    loginUrl.searchParams.set("reauth", "1");
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
+  };
+  const isPlatformSuperadminUser = async () => {
+    if (!user) return false;
+    const { data } = await supabase.from("platform_superadmins").select("user_id").eq("user_id", user.id).maybeSingle();
+    return Boolean(data);
+  };
+
   if (user && !isPublic && !pathname.startsWith("/api/")) {
     const tenantId = request.cookies.get(ACTIVE_TENANT_COOKIE)?.value;
-    let memberQuery = supabase.from("tenant_members").select("role,tenant_id")
-      .eq("user_id", user.id).eq("is_active", true);
-    if (tenantId) memberQuery = memberQuery.eq("tenant_id", tenantId);
-    let memberResult = await memberQuery.order("created_at").limit(1).maybeSingle();
-    if ((memberResult.error || !memberResult.data) && tenantId) {
-      memberResult = await supabase.from("tenant_members").select("role,tenant_id")
-        .eq("user_id", user.id).eq("is_active", true).order("created_at").limit(1).maybeSingle();
+    const membershipsQuery = () => supabase.from("tenant_members").select("role,tenant_id")
+      .eq("user_id", user.id).eq("is_active", true).order("created_at");
+    let activeMembership: { role: string; tenant_id: string } | null = null;
+
+    if (tenantId) {
+      /* Cookie presente: debe corresponder a una membresía activa real. Si no
+         coincide, NO se recae en la primera membresía por created_at. */
+      const { data } = await membershipsQuery().eq("tenant_id", tenantId).maybeSingle();
+      activeMembership = data;
+      if (!activeMembership && !(await isPlatformSuperadminUser())) return reauthRedirect();
+    } else {
+      /* Sin cookie solo es aceptable una única membresía activa (no es adivinar);
+         con varias o ninguna se exige re-autenticación para resolver el tenant. */
+      const { data: memberships } = await membershipsQuery();
+      if (memberships && memberships.length === 1) {
+        activeMembership = memberships[0] ?? null;
+      } else if (!memberships || memberships.length === 0) {
+        if (!(await isPlatformSuperadminUser())) return reauthRedirect();
+      } else {
+        return reauthRedirect();
+      }
     }
-    if (memberResult.data?.role === "agent" && !canAgentAccessPath(pathname)) {
+    if (activeMembership?.role === "agent" && !canAgentAccessPath(pathname)) {
       const dashboardUrl = request.nextUrl.clone();
       dashboardUrl.pathname = "/dashboard";
       dashboardUrl.search = "";

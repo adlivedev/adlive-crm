@@ -32,7 +32,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const isRestrictedAgent = !isPlatformSuperadmin && activeMember?.role === "agent" && !canAgentAccessPath(pathname);
 
   useEffect(() => {
-    if (isHydrated && !session) router.replace("/login");
+    if (isHydrated && !session) {
+      /* QA-NEW-005: respeta el destino del logout (workspace del tenant) si el
+         Topbar lo dejó señalado; si no, login genérico. */
+      const pending = typeof window !== "undefined" ? sessionStorage.getItem("crm-logout-redirect") : null;
+      if (pending) sessionStorage.removeItem("crm-logout-redirect");
+      router.replace(pending ?? "/login");
+    }
   }, [isHydrated, session, router]);
 
   useEffect(() => {

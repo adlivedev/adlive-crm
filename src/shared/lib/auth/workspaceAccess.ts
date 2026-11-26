@@ -31,3 +31,12 @@ export function evaluateWorkspaceAccess(input: {
   }
   return { allowed: true };
 }
+
+/** QA-NEW-005 — Destino del logout: un usuario de workspace cliente debe
+ *  aterrizar siempre en /login?workspace=<slug>; el superadmin va al login
+ *  genérico. */
+export function resolveLogoutLoginPath(isPlatformSuperadmin: boolean, tenantSlug: string | null | undefined): string {
+  return !isPlatformSuperadmin && tenantSlug
+    ? `/login?workspace=${encodeURIComponent(tenantSlug)}`
+    : "/login";
+}

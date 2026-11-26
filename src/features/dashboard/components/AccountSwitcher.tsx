@@ -13,7 +13,7 @@ export interface AccountSwitcherProps {
 export function AccountSwitcher({ placement }: AccountSwitcherProps) {
   const {
     activeTenant, activeMember, session, isPlatformSuperadmin, availableTenants, members,
-    viewingAsMemberId, switchTenant, setViewingAsMemberId,
+    viewingAsMemberId, switchTenant, setViewingAsMemberId, userAccounts,
   } = useCrm();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,7 +37,34 @@ export function AccountSwitcher({ placement }: AccountSwitcherProps) {
   if (!activeTenant) return null;
 
   if (placement === "topbar") {
-    if (!isPlatformSuperadmin) return null;
+    /* QA-NEW-005: superadmin ve todos los workspaces; el usuario con membresía
+       activa en más de 1 workspace ve un selector limitado estrictamente a sus
+       cuentas. Con 1 sola membresía el selector se mantiene oculto. */
+    if (!isPlatformSuperadmin) {
+      if (userAccounts.length <= 1) return null;
+      const accounts = userAccounts.slice().sort((a, b) => a.tenant.name.localeCompare(b.tenant.name, "es"));
+      return (
+        <div ref={containerRef} className="relative">
+          <button type="button" aria-haspopup="listbox" aria-expanded={isOpen} aria-label="Cambiar de workspace" onClick={() => setIsOpen((open) => !open)}
+            className="flex w-full cursor-pointer items-center gap-3 rounded-xl border border-adlive-border bg-white p-3 text-left text-adlive-text-main transition-colors hover:bg-adlive-canvas-bg">
+            <span aria-hidden className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-adlive-primary to-adlive-cyan"><Building2 className="h-4 w-4 text-white" /></span>
+            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{activeTenant.name}</span><span className="block truncate text-xs uppercase tracking-wide text-adlive-text-muted">{roleLabel(activeMember?.role ?? "agent")}</span></span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-adlive-text-muted transition-transform ${isOpen ? "rotate-180" : ""}`} />
+          </button>
+          {isOpen ? <div role="listbox" aria-label="Mis workspaces" className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl border border-adlive-border bg-adlive-card-bg p-2 shadow-card">
+            <p className="px-3 py-2 text-sm font-semibold text-adlive-text-main">Mis workspaces</p>
+            <ul>{accounts.map(({ tenant }) => {
+              const isActive = tenant.id === activeTenant.id;
+              return <li key={tenant.id}><button type="button" role="option" aria-selected={isActive} onClick={() => { switchTenant(tenant.id); setIsOpen(false); }}
+                className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left ${isActive ? "bg-adlive-primary-light" : "hover:bg-adlive-canvas-bg"}`}>
+                <span className="min-w-0"><span className="block truncate text-sm font-medium text-adlive-text-main">{tenant.name}</span>{tenant.status === "suspended" ? <span className="block text-xs text-adlive-danger">Inhabilitado</span> : null}</span>
+                {isActive ? <Check className="h-4 w-4 shrink-0 text-adlive-primary" aria-label="Workspace activo" /> : null}
+              </button></li>;
+            })}</ul>
+          </div> : null}
+        </div>
+      );
+    }
     const workspaces = availableTenants.slice().sort((a, b) => {
       if (a.slug === "adlive") return -1;
       if (b.slug === "adlive") return 1;

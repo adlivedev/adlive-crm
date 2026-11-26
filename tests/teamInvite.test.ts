@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createClient: vi.fn(), getUser: vi.fn(), rpc: vi.fn(), createAdminClient: vi.fn(),
-  generateLink: vi.fn(), deleteUser: vi.fn(), tenantMembersUpsert: vi.fn(),
+  generateLink: vi.fn(), deleteUser: vi.fn(), listUsers: vi.fn(), tenantMembersUpsert: vi.fn(),
   sendWorkspaceEmail: vi.fn(),
 }));
 
@@ -25,7 +25,7 @@ function json(body: Record<string, unknown>) {
 
 function adminClientWithTenant(tenant: { slug: string; name: string } | null) {
   return {
-    auth: { admin: { generateLink: mocks.generateLink, deleteUser: mocks.deleteUser } },
+    auth: { admin: { generateLink: mocks.generateLink, deleteUser: mocks.deleteUser, listUsers: mocks.listUsers } },
     from: (table: string) => {
       if (table === "tenants") {
         return { select: vi.fn(() => ({ eq: vi.fn(() => ({ maybeSingle: vi.fn(async () => ({ data: tenant, error: null })) })) })) };
@@ -45,6 +45,8 @@ beforeEach(() => {
   mocks.tenantMembersUpsert.mockResolvedValue({ error: null });
   mocks.sendWorkspaceEmail.mockResolvedValue(undefined);
   mocks.deleteUser.mockResolvedValue({ error: null });
+  /* Por defecto el correo NO existe previamente en auth.users (usuario nuevo). */
+  mocks.listUsers.mockResolvedValue({ data: { users: [] }, error: null });
 });
 
 describe("TC-TEAM-INVITE — QA-003: override auditado de superadmin y QA-002: errores reales", () => {
@@ -128,5 +130,58 @@ describe("TC-TEAM-INVITE — QA-003: override auditado de superadmin y QA-002: e
 
     expect(response.status).toBe(400);
     expect(mocks.generateLink).not.toHaveBeenCalled();
+  });
+});
+
+describe("TC-TEAM-INVITE-ROLLBACK — bug crítico: jamás borrar una cuenta global preexistente", () => {
+  const preexistingUserId = "33333333-3333-4333-8333-333333333333";
+
+  beforeEach(() => {
+    /* El correo YA existe en auth.users (pertenece a otro workspace). */
+    mocks.listUsers.mockResolvedValue({
+      data: { users: [{ id: preexistingUserId, email: "global@otro.test" }] },
+      error: null,
+    });
+    mocks.generateLink.mockResolvedValue({
+      data: { user: { id: preexistingUserId }, properties: { action_link: "https://app.test/aceptar" } },
+      error: null,
+    });
+  });
+
+  it("si el correo ya existía y falla el upsert de membresía: 500 SIN deleteUser (la cuenta global sobrevive)", async () => {
+    mocks.rpc.mockResolvedValue({ data: true, error: null });
+    mocks.tenantMembersUpsert.mockResolvedValue({ error: { message: "conflicto" } });
+
+    const response = await inviteMember(json({ tenantId, email: "global@otro.test", role: "agent" }));
+
+    expect(response.status).toBe(500);
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("si el correo ya existía y falla el SMTP: 502 SIN deleteUser (la cuenta global sobrevive)", async () => {
+    mocks.rpc.mockResolvedValue({ data: true, error: null });
+    mocks.tenantMembersUpsert.mockResolvedValue({ error: null });
+    mocks.sendWorkspaceEmail.mockRejectedValue(new Error("SMTP down"));
+
+    const response = await inviteMember(json({ tenantId, email: "global@otro.test", role: "agent" }));
+
+    expect(response.status).toBe(502);
+    expect(mocks.deleteUser).not.toHaveBeenCalled();
+  });
+
+  it("si el correo NO existía y falla el upsert: 500 Y deleteUser solo de la cuenta recién creada", async () => {
+    mocks.rpc.mockResolvedValue({ data: true, error: null });
+    mocks.listUsers.mockResolvedValue({ data: { users: [] }, error: null });
+    mocks.generateLink.mockResolvedValue({
+      data: { user: { id: "uuid-recien-creado" }, properties: { action_link: "https://app.test/aceptar" } },
+      error: null,
+    });
+    mocks.tenantMembersUpsert.mockResolvedValue({ error: { message: "conflicto" } });
+
+    const response = await inviteMember(json({ tenantId, email: "fresco@cierto.test", role: "agent" }));
+
+    expect(response.status).toBe(500);
+    expect(mocks.deleteUser).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteUser).toHaveBeenCalledWith("uuid-recien-creado");
   });
 });

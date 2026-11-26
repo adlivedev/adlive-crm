@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { checkServerRateLimit, clientIp } from "@/shared/lib/rateLimit";
 import {
   ingestLeadWebPayload,
   InvalidPublicWebhookTokenError,
@@ -67,6 +68,13 @@ export async function POST(request: Request) {
       { error: "Payload no válido.", fields: parsed.error.flatten().fieldErrors },
       { status: 400, headers: corsHeaders(origin) },
     );
+  }
+
+  /* QA-NEW-004: máx. 10 envíos por minuto por IP (el workspace se resuelve
+     internamente por token en esta ruta genérica). */
+  const retryAfter = await checkServerRateLimit(`leadweb:${clientIp(request)}:global`, 10, 60);
+  if (retryAfter !== null) {
+    return NextResponse.json({ error: "Demasiados envíos. Inténtalo de nuevo en un minuto." }, { status: 429, headers: { ...corsHeaders(origin), "Retry-After": String(retryAfter) } });
   }
 
   try {

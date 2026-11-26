@@ -31,10 +31,30 @@ const securityHeaders: { key: string; value: string }[] = [
   },
 ];
 
+const supabaseHost = (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://*.supabase.co").replace(/^https?:\/\//, "");
+
+/** CSP estricta para las rutas del CRM (QA-NEW-002). 'unsafe-inline' en script
+ *  es requerido por el payload RSC en línea de Next.js App Router; el resto de
+ *  directivas cierran XSS, clickjacking e inyección de objetos. */
+const cspValue = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  `img-src 'self' data: blob: https://*.supabase.co`,
+  "font-src 'self' data:",
+  `connect-src 'self' https://${supabaseHost} https://*.supabase.co wss://${supabaseHost} wss://*.supabase.co`,
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  ...(process.env.NODE_ENV === "production" ? ["upgrade-insecure-requests"] : []),
+].join("; ");
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   async headers() {
+    const crmHeaders = [...securityHeaders, { key: "Content-Security-Policy", value: cspValue }];
     const embeddableHeaders = [
       ...securityHeaders.filter(({ key }) => key !== "X-Frame-Options"),
       { key: "Content-Security-Policy", value: "frame-ancestors *" },
@@ -42,7 +62,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/((?!l/|embed/).*)",
-        headers: securityHeaders,
+        headers: crmHeaders,
       },
       {
         source: "/l/:path*",

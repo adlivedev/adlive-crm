@@ -4,6 +4,7 @@ import { LogOut, Menu } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { useCrm } from "@/shared/services/crmStore";
+import { resolveLogoutLoginPath } from "@/shared/lib/auth/workspaceAccess";
 
 import { AccountSwitcher } from "./AccountSwitcher";
 import { NotificationBell } from "./NotificationBell";
@@ -41,14 +42,16 @@ interface TopbarProps {
 export function Topbar({ onOpenMenu }: TopbarProps) {
   const pathname = usePathname();
   const router = useRouter();
-  const { session, logout, activeTenant, isPlatformSuperadmin } = useCrm();
+  const { session, logout, activeTenant, isPlatformSuperadmin, userAccounts } = useCrm();
   const meta = resolveViewMeta(pathname, activeTenant?.name ?? "CRM");
 
   async function handleLogout() {
-    const loginPath = !isPlatformSuperadmin && activeTenant?.slug
-      ? `/login?workspace=${encodeURIComponent(activeTenant.slug)}`
-      : "/login";
+    const loginPath = resolveLogoutLoginPath(Boolean(isPlatformSuperadmin), activeTenant?.slug);
+    /* Evita la condición de carrera con el useEffect del DashboardLayout: la
+       bandera le indica a dónde redirigir tras limpiar la sesión. */
+    sessionStorage.setItem("crm-logout-redirect", loginPath);
     await logout();
+    sessionStorage.removeItem("crm-logout-redirect");
     router.replace(loginPath);
   }
 
@@ -72,7 +75,7 @@ export function Topbar({ onOpenMenu }: TopbarProps) {
 
       <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <NotificationBell />
-        {isPlatformSuperadmin ? <div className="hidden w-52 md:block xl:w-64"><AccountSwitcher placement="topbar" /></div> : null}
+        {isPlatformSuperadmin || userAccounts.length > 1 ? <div className="hidden w-52 md:block xl:w-64"><AccountSwitcher placement="topbar" /></div> : null}
         <span className="hidden max-w-56 truncate text-sm text-adlive-text-muted lg:block" title={session?.email}>
           {session?.email}
         </span>

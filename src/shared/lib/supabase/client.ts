@@ -24,6 +24,13 @@ export function createClient() {
     throw new Error("Supabase browser: falta la URL o la clave pública (publishable/anon).");
   }
 
-  browserClient = createBrowserClient(url, publicKey);
+  browserClient = createBrowserClient(url, publicKey, {
+    cookieOptions: {
+      /* QA-NEW-002: sesión máx. 8 h (sliding), SameSite=Lax y Secure en prod. */
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 28_800,
+    },
+  });
   return browserClient;
 }

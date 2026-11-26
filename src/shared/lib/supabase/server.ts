@@ -21,7 +21,13 @@ export async function createClient() {
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            cookieStore.set(name, value, {
+              ...options,
+              /* QA-NEW-002: sesión máx. 8 h (sliding), SameSite=Lax y Secure en prod. */
+              sameSite: "lax",
+              secure: process.env.NODE_ENV === "production",
+              maxAge: Math.min(options.maxAge ?? 28_800, 28_800),
+            });
           });
         } catch {
           /* Los Server Components no pueden escribir cookies; lo hará middleware/action. */

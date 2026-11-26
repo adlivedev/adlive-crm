@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getAppOrigin } from "@/shared/lib/appOrigin";
 import { evaluateWorkspaceAccess } from "@/shared/lib/auth/workspaceAccess";
 import { sendWorkspaceEmail } from "@/shared/lib/mail/smtpMailer";
+import { checkServerRateLimit, clientIp } from "@/shared/lib/rateLimit";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
 import type { Tenant } from "@/shared/types/database";
 
@@ -29,6 +30,12 @@ function escapeHtml(value: string): string {
 export async function POST(request: Request) {
   const parsed = recoverySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Escribe un correo y un workspace válidos." }, { status: 400 });
+
+  /* QA-NEW-004: máx. 3 solicitudes cada 5 minutos por IP + correo. */
+  const retryAfter = await checkServerRateLimit(`forgot:${clientIp(request)}:${parsed.data.email}`, 3, 300);
+  if (retryAfter !== null) {
+    return NextResponse.json({ error: "Demasiadas solicitudes. Espera unos minutos e inténtalo de nuevo." }, { status: 429, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } });
+  }
 
   try {
     const admin = createAdminClient();
