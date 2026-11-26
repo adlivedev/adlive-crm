@@ -167,3 +167,57 @@ Detalle en 7.3. Corrección desplegada en `f4badaf` y verificada en producción 
 ### 7.6 Residuos `[QA-TEST]`
 
 Verificación SQL posterior a los 4 flujos: `contacts=0, workflows=0, ai_bots=0, tenant_members(vía auth.users qa-test)=0, opportunities=0`.
+
+
+---
+
+## 8. Auditoría QA Post-Mejoras PRO (Fase 1, 2 y Cron Supabase)
+
+**Fecha:** 2026-11-25 · **Producción:** `https://adlive-crm.vercel.app` (CIERTO) · **Commits:** `7f47a9f` (fix dedup por correo + UTM webhook), `0b1ad68` (panel de identidad Ficha 360°), `8814001` (white-label SMTP) · **Suite:** 224/224 tests, ESLint 0, `tsc --noEmit` 0, build OK.
+
+### 8.1 Contactos — E.164, dedup por teléfono y por correo ✅ PASÓ (1 fallo P1 encontrado y corregido en caliente)
+
+- Teléfono inválido `+311492102` → **400 «Número no válido para Colombia»** ✅.
+- **Hallazgo P1:** lead con «mismo correo + teléfono nuevo» devolvía **500** — la RPC `public.ingest_tenant_web_lead` hacía dedup solo por teléfono e intentaba un INSERT que violaba `contacts_unique_email_per_tenant`. **Corregido** con migración `20261126000200_ingest_lead_email_dedup` (aplicada a producción): dedup primero por teléfono (`contacts` + `contact_phones`), luego por correo case-insensitive (`contacts` + `contact_emails`); enriquece el existente y registra teléfono/correo adicionales como secundarios (`ON CONFLICT DO NOTHING`).
+- Secuencia lead1 / lead3 (mismo teléfono) / lead2 (mismo correo) → **los 3 al mismo contacto**: 1 contacto, 2 teléfonos (1 principal), 2 correos, 4 historiales, oportunidad en **Interesado**, `form_name='[QA-TEST] Form QA'` y `utm_source='instagram'` persistidos ✅ (fix complementario en `leadWebhookService.ts`/`contactIdentityService.ts`/`CommercialTabs.tsx`: claves UTM oficiales `utm_*`).
+- Panel **«Teléfonos y correos»** en Ficha 360° (`ContactIdentityPanel.tsx`, commit `0b1ad68`) verificado en producción: lista secundarios con badge «Principal» y acción «Hacer principal» ✅.
+- Notificaciones: 3 del contacto QA, 1 enrollment de workflow (disparador `contact_created`), **0 fugas a otros tenants** ✅.
+
+### 8.2 White-label en las 12 vistas ✅ PASÓ (1 fuga menor corregida)
+
+Dashboard, Contactos, Oportunidades, Conversaciones, Automatizaciones, Plantillas, Integraciones, Bots IA, Equipo, Atribución, Ajustes y login/embed: **0 menciones a «ADlive»** renderizadas (el logo ADlive solo se monta en el panel de Superadmin; correos de invitación de plataforma y comentarios de código no son UI de tenant). Única fuga real: texto en `SmtpSettingsTab.tsx:143` — **corregida** en `8814001`.
+
+### 8.3 Conversaciones ✅ PASÓ
+
+- Apertura de chat, header (Conectado/WhatsApp/teléfono/tipificación/modo Bot-Humano/reasignar/eliminar), filtros (Sin leer/Seguimiento/Bot/Humano/Ver más), badge `• WA Act` ✅.
+- **Escritura libre** en composer sin exigir plantilla ✅; constructor **mensaje interactivo** (cuerpo con `{{variables}}`, pie, imagen de cabecera máx. 2 MB, tipo de botones), **respuestas rápidas** (popover), adjuntar imagen (máx. 2 MB) e insertar plantilla ✅.
+- La frase «Ventana de 24 h activa · quedan…» **ya no existe en la UI** (eliminada en Fase 1). El aviso «Pasaron más de 24 h… solo plantilla aprobada» que queda en la Ficha 360° **es una restricción real de WhatsApp Business API (Meta)**, no de la aplicación: fuera de la ventana de 24 h la Cloud API rechaza mensajes libres (error 131047), por eso el sistema exige plantilla aprobada solo en ese caso.
+- Transcripción de audios: verificación limitada (sin audio real de prueba); el pipeline existe en código.
+
+### 8.4 Plantillas, Automatizaciones e Integraciones ✅ PASÓ
+
+- Plantillas: modal «Crear plantilla» con **Header Imagen**, variables del CRM (`{{nombre}}`, teléfono, campaña…), contador 0/1024, footer 0/60, guía «se envía a Meta para aprobación» ✅.
+- Automatizaciones: disparadores incluyen **«SLA: sin respuesta del agente»** ✅; el editor de nodo expone el **filtro «Campaña UTM»** (landing/etiqueta/formulario) en `NodeEditPanel.tsx:262` vía `TRIGGER_FILTER_LABELS` ✅; plantillas recomendadas con descripción por pasos ✅.
+- Integraciones: tarjetas WhatsApp (conectado, IDs, reconectar/desconectar), Facebook Lead Ads, Instagram, TikTok Ads, Twilio, Telnyx; cada «Conectar» abre modal con **«Guía paso a paso»** y URL/token individual del workspace ✅.
+
+### 8.5 Bots IA y Atribución ✅ PASÓ
+
+- Guía rápida en 3 pasos, selector de modelo, panel de consumo, validación de proveedor (sin badge «Sin API Key» porque Gemini está conectada; verificado el bloqueo con proveedor sin key en sección 7.4), mini-chat de prueba funcional (verificado en vivo en 7.4) ✅.
+- `/atribucion` muestra el lead con `utm_source=instagram` en el ranking de fuentes ✅.
+
+### 8.6 Constructor de formularios y embed ✅ PASÓ (E2E completo)
+
+- Constructor (Ajustes → «Constructor de formularios»): nombre, slug, columnas 1/2/3, tipografía, **multi-step**, campos marcables/reordenables, bloques HTML sanitizados, colores de tema ✅. Se creó `[QA-TEST] Formulario QA` (`qa-test-form`, por pasos, activo) ✅.
+- Embed `/embed/cierto/form?theme=dark&form=qa-test-form`: **fondo transparente** (`body` rgba(0,0,0,0)), sin marca, auto-height por `postMessage` (`crm-embed-resize` en `form.js`) ✅.
+- Lead enviado desde el embed → contacto «QA Test Embed» con teléfono `+573000000201` y correo, oportunidad **«Interesado»**, notificación «llegó por Formulario Web» y enrollment del workflow `contact_created` ✅ (verificado por SQL).
+
+### 8.7 Notificaciones, Cron y aislamiento ✅ PASÓ
+
+- Campana del topbar con contador y popover (lista con leads QA recientes) ✅.
+- Cron Supabase (`adlive-crm-process-jobs`) activo cada 5 min sin errores; el endpoint exige `CRON_SECRET` (401 sin token y con token inválido, verificado con curl) ✅. **Pendiente manual del usuario:** cargar `crm_cron_secret` en Vault (`select vault.create_secret('<valor>','crm_cron_secret');`) — los runs actuales no ejecutan jobs hasta que exista.
+- Aislamiento multi-tenant: notificaciones y leads del QA solo en CIERTO, 0 fugas ✅.
+
+### 8.8 Responsive y limpieza final ✅ PASÓ (responsive parcial)
+
+- Responsive: verificación parcial — el visor de automatización tiene viewport estrecho fijo; se validó la lista de conversaciones, la ficha y el embed en ancho móvil sin scroll horizontal incómodo. No fue posible cambiar a 360/768/1440 desde el visor.
+- **Limpieza ejecutada y verificada por SQL (0 residuos):** contactos=0, conversaciones=0, mensajes=0, oportunidades=0, historiales=0, enrollments=0, notificaciones=0, formularios=0; barrido amplio por texto `QA-TEST`/`qatest` en mensajes, conversaciones, contactos, notificaciones, formularios y workflows = **0**.
