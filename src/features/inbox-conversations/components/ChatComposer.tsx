@@ -144,7 +144,19 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
     <div className="border-t border-adlive-border px-4 py-3">
       {/* Selector desplegable (plantillas / respuestas rápidas) */}
       {picker === "interactive" ? (
-        <div className="mb-2 rounded-xl border border-adlive-border bg-adlive-canvas-bg/60 p-3" aria-label="Constructor de mensaje interactivo">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-adlive-text-main/40 backdrop-blur-[2px] sm:items-center sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Constructor de mensaje interactivo"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              resetInteractive();
+              setPicker(null);
+            }
+          }}
+        >
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col gap-3 overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-2xl">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {/* Formulario */}
             <div className="flex flex-col gap-3">
@@ -244,11 +256,12 @@ export function ChatComposer({ conversation, contact }: { conversation: Conversa
               </div>
             </div>
           </div>
-          <div className="mt-3 flex items-center justify-end gap-3 border-t border-adlive-border/60 pt-3">
+          <div className="mt-1 flex items-center justify-end gap-3 border-t border-adlive-border/60 pt-3">
             <button type="button" onClick={() => { resetInteractive(); setPicker(null); }} className="cursor-pointer text-xs font-semibold text-adlive-text-muted hover:text-adlive-text-main">Cancelar</button>
             <Button type="button" variant="primary" size="sm" onClick={() => void handleSendInteractive()} disabled={!ixReady || isMutating} isLoading={isMutating}>
               <SendHorizonal className="mr-1 h-3.5 w-3.5" aria-hidden /> Enviar interactivo
             </Button>
+          </div>
           </div>
         </div>
       ) : picker ? (

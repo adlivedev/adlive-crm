@@ -50,7 +50,7 @@ export class ProviderHttpError extends Error {
 }
 
 async function providerFetch(url: string, init: RequestInit): Promise<unknown> {
-  const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(25_000) });
+  const response = await fetch(url, { ...init, cache: "no-store", signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new ProviderHttpError(response.status);
   return response.json() as Promise<unknown>;
 }
@@ -132,7 +132,7 @@ const DEFAULT_CHAIN: Record<SupportedProvider, string[]> = {
 interface GenerateOptions { botId?: string | null; model?: string | null; fallbackModels?: string[] | null }
 
 /** Invoca al proveedor con el modelo principal y, ante saturación/cuota (429, 503,
- * 404 o timeout de 25 s), cambia automáticamente al siguiente modelo de respaldo.
+ * 404 o timeout de 12 s), cambia automáticamente al siguiente modelo de respaldo.
  * Registra cada invocación en ai_usage_logs y devuelve el texto de respuesta. */
 export async function generateBotText(
   provider: SupportedProvider,
@@ -172,7 +172,7 @@ export async function generateBotText(
         lastError = error;
         if (!(error instanceof ProviderHttpError)) {
           if (error instanceof Error && error.name === "TimeoutError") {
-            // timeout de 25 s: continuar con el modelo de respaldo
+            // timeout de 12 s: continuar con el modelo de respaldo
             break;
           }
           throw error;
