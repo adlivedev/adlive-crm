@@ -250,6 +250,57 @@ export interface ContactActivity {
 }
 
 /* ============================================================================
+ * 5b. CAMPAÑAS MASIVAS DE WHATSAPP
+ * ========================================================================== */
+
+export type CampaignMessageType = "template" | "text" | "interactive";
+export type CampaignStatus = "draft" | "scheduled" | "sending" | "sent" | "failed";
+
+/** Filtros de audiencia de una campaña masiva (vacío = todos los contactos). */
+export interface CampaignFilters {
+  utm_source?: string | null;
+  utm_campaign?: string | null;
+  created_from?: string | null; // ISO date YYYY-MM-DD
+  created_to?: string | null;   // ISO date YYYY-MM-DD
+}
+
+export interface Campaign {
+  id: string;
+  tenant_id: string;
+  name: string;
+  msg_type: CampaignMessageType;
+  template_name: string | null;
+  body: string;
+  interactive: CampaignInteractive | null;
+  filters: CampaignFilters;
+  status: CampaignStatus;
+  scheduled_at: string | null;
+  sent_count: number;
+  failed_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Mensaje interactivo de campaña: cuerpo + botones de respuesta o CTA con enlace. */
+export interface CampaignInteractive {
+  body: string;
+  footer?: string;
+  buttons: Array<{ kind: "reply" | "cta_url"; title: string; url?: string }>;
+}
+
+export type CampaignSendStatus = "sent" | "failed" | "skipped";
+
+export interface CampaignSend {
+  id: string;
+  tenant_id: string;
+  campaign_id: string;
+  contact_id: string;
+  status: CampaignSendStatus;
+  error: string | null;
+  sent_at: string;
+}
+
+/* ============================================================================
  * 6. PLANTILLAS DE WHATSAPP (META CLOUD API)
  * ========================================================================== */
 

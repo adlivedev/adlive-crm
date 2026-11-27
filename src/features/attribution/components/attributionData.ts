@@ -1,6 +1,6 @@
 import type { Contact, Opportunity } from "@/shared/types/database";
 
-export type AttributionTab = "campaigns" | "adsets" | "ads" | "sources" | "landings";
+export type AttributionTab = "campaigns" | "adsets" | "ads" | "sources" | "landings" | "massCampaigns";
 
 export interface AttributionRow {
   key: string;
@@ -43,6 +43,7 @@ export function buildAttributionRows(
   from: string | null,
   to: string | null,
 ): AttributionRow[] {
+  if (tab === "massCampaigns") return []; // se calcula con buildMassCampaignRows
   const groups = new Map<string, AttributionRow & { contactIds: Set<string> }>();
   for (const contact of contacts) {
     if (!isoInRange(contact.created_at, from, to)) continue;
@@ -65,4 +66,52 @@ export function buildAttributionRows(
     ...group,
     conversionPct: group.leads > 0 ? (group.won / group.leads) * 100 : 0,
   })).sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name));
+}
+
+export interface MassCampaignInput { id: string; name: string }
+export interface MassCampaignSendInput { campaign_id: string; contact_id: string; status: string; sent_at: string }
+
+/**
+ * Atribución de campañas masivas: por cada campaña, cuántos contactos la
+ * recibieron («Leads») y cuántas oportunidades ganadas tienen esos contactos.
+ */
+export function buildMassCampaignRows(
+  campaigns: MassCampaignInput[],
+  sends: MassCampaignSendInput[],
+  opportunities: Opportunity[],
+  from: string | null,
+  to: string | null,
+): AttributionRow[] {
+  const contactsByCampaign = new Map<string, Set<string>>();
+  for (const send of sends) {
+    if (send.status !== "sent" || !isoInRange(send.sent_at, from, to)) continue;
+    const current = contactsByCampaign.get(send.campaign_id) ?? new Set<string>();
+    current.add(send.contact_id);
+    contactsByCampaign.set(send.campaign_id, current);
+  }
+  const wonByCampaign = new Map<string, { won: number; wonValue: number }>();
+  for (const opportunity of opportunities) {
+    if (opportunity.status !== "won" || !opportunity.closed_at || !isoInRange(opportunity.closed_at, from, to)) continue;
+    for (const [campaignId, contactIds] of contactsByCampaign) {
+      if (!contactIds.has(opportunity.contact_id)) continue;
+      const current = wonByCampaign.get(campaignId) ?? { won: 0, wonValue: 0 };
+      current.won += 1;
+      current.wonValue += Number(opportunity.monetary_value);
+      wonByCampaign.set(campaignId, current);
+    }
+  }
+  return campaigns.map((campaign) => {
+    const leads = contactsByCampaign.get(campaign.id)?.size ?? 0;
+    const wonData = wonByCampaign.get(campaign.id) ?? { won: 0, wonValue: 0 };
+    return {
+      key: campaign.id,
+      name: campaign.name,
+      detail: "Campaña masiva de WhatsApp",
+      leads,
+      won: wonData.won,
+      wonValue: wonData.wonValue,
+      conversionPct: leads > 0 ? (wonData.won / leads) * 100 : 0,
+    };
+  }).filter((row) => row.leads > 0)
+    .sort((a, b) => b.leads - a.leads || a.name.localeCompare(b.name));
 }

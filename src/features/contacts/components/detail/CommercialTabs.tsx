@@ -62,6 +62,7 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   conversation: "Conversación",
   comment: "Comentario",
   document: "Documento",
+  campaign: "Campaña",
 };
 
 function memberLabel(email: string | null | undefined): string {

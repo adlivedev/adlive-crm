@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { nextRetryRunAfter } from "@/shared/lib/backgroundJobs";
 import { isCronAuthorized, partitionJobsByActiveTenants } from "@/shared/lib/cronSecurity";
+import { processCampaignSendBatch } from "@/shared/services/campaignService";
 import { emailSlaAlert, sendDailySummary } from "@/shared/services/conversationAlertService";
 import { runSlaWorkflowsSweep } from "@/shared/services/workflowExecutionService";
 import { createAdminClient } from "@/shared/lib/supabase/admin";
@@ -149,6 +150,14 @@ async function processJob(admin: ReturnType<typeof createAdminClient>, job: JobR
       for (const enrollment of enrollments ?? []) {
         await admin.from("workflow_enrollments").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", enrollment.id);
       }
+      return;
+    }
+    /* Envío masivo 1x1 de una campaña: procesa un lote y se re-encola
+       automáticamente mientras queden contactos pendientes. */
+    case "campaign_send_batch": {
+      const campaignId = typeof job.payload.campaign_id === "string" ? job.payload.campaign_id : "";
+      if (!campaignId) throw new Error("campaign_send_batch sin campaign_id.");
+      await processCampaignSendBatch(job.tenant_id, campaignId);
       return;
     }
     default:
