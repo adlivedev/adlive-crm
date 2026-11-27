@@ -1,6 +1,6 @@
 import type { Contact, Opportunity } from "@/shared/types/database";
 
-export type AttributionTab = "campaigns" | "adsets" | "ads";
+export type AttributionTab = "campaigns" | "adsets" | "ads" | "sources" | "landings";
 
 export interface AttributionRow {
   key: string;
@@ -24,6 +24,14 @@ function dimension(contact: Contact, tab: AttributionTab): { key: string; name: 
   if (tab === "campaigns" && campaign) return { key: `campaign:${campaign}`, name: campaign, detail: [contact.utm_source, contact.utm_medium].filter(Boolean).join(" · ") || "UTM registrada" };
   if (tab === "adsets" && adset) return { key: `adset:${campaign ?? ""}:${adset}`, name: adset, detail: campaign ?? "Sin campaña UTM" };
   if (tab === "ads" && ad) return { key: `ad:${campaign ?? ""}:${adset ?? ""}:${ad}`, name: ad, detail: [campaign, adset].filter(Boolean).join(" · ") || "Contenido UTM" };
+  const source = contact.utm_source?.trim();
+  if (tab === "sources" && source) return { key: `source:${source}`, name: source, detail: [contact.utm_medium, campaign].filter(Boolean).join(" · ") || "Fuente UTM" };
+  const landing = contact.landing_url?.trim();
+  if (tab === "landings" && landing) {
+    /* Mostrar URL legible (sin protocolo ni query, acotada) y mantener la clave exacta. */
+    const pretty = landing.replace(/^https?:\/\//i, "").split("?")[0] ?? landing;
+    return { key: `landing:${landing}`, name: pretty.length > 80 ? `${pretty.slice(0, 77)}…` : pretty, detail: [source, campaign].filter(Boolean).join(" · ") || "Landing registrada" };
+  }
   return null;
 }
 

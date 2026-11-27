@@ -204,7 +204,12 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
         tenantId,
         contactId: workflowContactId,
         contactName: contactRow.full_name,
-        memberId: result.out_assigned_member_id ?? contactRow.assigned_member_id,
+        /* El workflow (p. ej. «Asignar a…») se ejecutó DESPUÉS de la ingesta y
+           es la asignación definitiva: contactRow.assigned_member_id tiene
+           prioridad sobre el asignado inicial de la RPC. Antes la notificación
+           y el correo se enviaban al asignado original aunque el workflow
+           hubiera movido el lead a otro agente (mezcla de destinatarios). */
+        memberId: contactRow.assigned_member_id ?? result.out_assigned_member_id,
       });
       // Fase 2 — correo prioritario directo y natural para el agente asignado.
       const { emailLeadAssigned } = await import("@/shared/services/conversationAlertService");
@@ -212,7 +217,7 @@ export async function ingestTenantWebLead(tenantId: string, payload: TenantLeadW
         tenantId,
         contactId: workflowContactId,
         contactName: contactRow.full_name,
-        memberId: result.out_assigned_member_id ?? contactRow.assigned_member_id,
+        memberId: contactRow.assigned_member_id ?? result.out_assigned_member_id,
       });
     }
   } catch (notificationError) {

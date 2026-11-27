@@ -14,6 +14,8 @@ const TABS: Array<{ key: AttributionTab; label: string }> = [
   { key: "campaigns", label: "Campañas" },
   { key: "adsets", label: "Conjuntos" },
   { key: "ads", label: "Anuncios" },
+  { key: "sources", label: "Fuentes" },
+  { key: "landings", label: "Landings" },
 ];
 
 export function AttributionView() {
@@ -33,7 +35,7 @@ export function AttributionView() {
     <div className="flex flex-col gap-6">
       <header>
         <h1 className="text-2xl font-bold tracking-tight text-adlive-text-main">Atribución</h1>
-        <p className="mt-1 text-sm text-adlive-text-muted">Resultados calculados con los UTM de tus contactos y las oportunidades ganadas. Conjuntos usa <code>utm_term</code> y anuncios usa <code>utm_content</code>.</p>
+        <p className="mt-1 text-sm text-adlive-text-muted">Resultados calculados con los UTM de tus contactos y las oportunidades ganadas. Conjuntos usa <code>utm_term</code> y anuncios usa <code>utm_content</code>; Fuentes usa <code>utm_source</code> y Landings la URL donde llegó el lead. Solo ves los datos de tu workspace.</p>
       </header>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="flex flex-wrap gap-3">

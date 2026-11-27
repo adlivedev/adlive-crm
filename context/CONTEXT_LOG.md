@@ -14,6 +14,14 @@
 
 ---
 
+### [Iteración 28 - Verificación cron en prod + QA-NEW-012/013 (enum interactive, altura chat, mezcla asignación, atribución Fuentes/Landings)]
+- **Cron verificado en producción:** el cliente cargó `crm_cron_secret` en Supabase Vault y el job pg_cron `adlive-crm-process-jobs` corre cada 5 min (288 ejecuciones/24 h, estado `succeeded`, con jobs ya completados en `background_jobs`). Ya no es pendiente manual.
+- **QA-NEW-012 (mensaje interactivo):** el enum DB `message_type` no incluía `'interactive'` → INSERT en messages fallaba. Migración `20261127000100_message_type_add_interactive` aplicada a producción. (El tipo TS ya lo tenía.)
+- **Ficha 360° — historial que desbordaba la página:** `ConversationPanel` pasó de `min-h-[560px]` sin límite a altura acotada `h-[min(760px,calc(100dvh-96px))]`; el lienzo mantiene scroll interno y nunca rompe el layout.
+- **Mezcla de correos de asignación (correo al agente equivocado):** en `leadWebhookService` la notificación y el correo iban al asignado inicial de la RPC (`out_assigned_member_id`) aunque el workflow posterior («Asignar a…») moviera el lead a otro agente. Ahora priorizan `contactRow.assigned_member_id` leído DESPUÉS de ejecutar los workflows → asignación y correo siempre coinciden.
+- **QA-NEW-013 (atribución):** nuevas pestañas **Fuentes** (`utm_source`) y **Landings** (`landing_url`, URL legible sin protocolo ni query, acotada a 80 chars) en `/atribucion`, mismas métricas (leads/ganados/conversión/valor), filtradas por el tenant activo como el resto de la vista. Verificado en DB que `landing_url` ya se pobla (3/5 contactos).
+- **Verificación:** 268/268 tests (39 archivos, +2 nuevos de atribución), tsc/lint/build en verde.
+
 ### [Iteración 27 - SPRINT ENDURECIMIENTO FINAL (Parte 2): QA-NEW-006/007/009/010/011]
 - **QA-NEW-006 (E.164 unificado):** `NewContactModal`, `ContactDataPanel`, `parseContactsCsv` e `importContacts`/`createContact`/`updateContact` del store usan `normalizeCoPhone()` (rechazo claro en español, formato `+57XXXXXXXXXX` garantizado); `createContact`/`updateContact` sincronizan `contact_phones`/`contact_emails` (upsert best-effort, igual que la ingesta); el CSV reporta filas omitidas con razón en el modal (badge ámbar) y el store cuenta inválidas como fallidas con mensaje de importación parcial.
 - **QA-NEW-007 (bots IA):** `NewBotModal` resetea `modelName`/`fallbackModels` al cambiar de proveedor y muestra los checkboxes de modelos de respaldo también en modo «Automático»; `testProviderConnection` recorre toda `DEFAULT_CHAIN[provider]` ante 404/429/503/timeout (igual que `generateBotText`), reporta éxito indicando el modelo que respondió (con nota de «recuperado vía respaldo») y trata 400/401/403 como error fatal de clave sin seguir probando.

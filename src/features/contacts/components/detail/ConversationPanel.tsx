@@ -82,7 +82,9 @@ export function ConversationPanel({ contact, conversation }: { contact: Contact;
   };
 
   return (
-    <Card className="flex min-h-[560px] flex-col">
+    /* Altura acotada: el lienzo de mensajes (flex-1) mantiene su scroll
+       interno y el historial largo nunca desborda la página. */
+    <Card className="flex h-[min(760px,calc(100dvh-96px))] min-h-[560px] flex-col">
       {/* Cabecera */}
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-adlive-border px-5 py-4">
         <div>
